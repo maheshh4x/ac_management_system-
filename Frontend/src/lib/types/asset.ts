@@ -8,6 +8,10 @@ import type { AcStatus, LocationData } from "./campus";
 export interface ExtendedAC {
   id: string; // AC ID (asset_uuid when known, else ac_id) — stable URL/QR key
   acId?: string; // raw backend ac_id (when id is the uuid)
+  /** Technical UUID (QR payload, routing). Display visualId instead. */
+  uuid?: string;
+  /** Centrally derived human-readable identifier (backend visual_id.py). */
+  visualId?: string;
   make: string; // Brand
   model: string;
   capacity: string; // e.g., "1.5 Ton"
@@ -52,8 +56,13 @@ export interface ACFilters {
   buildingId?: string;
   floorId?: string;
   departmentId?: string;
+  collegeId?: string;
+  manufacturer?: string;
+  capacityTon?: string;
   acType?: string;
   status?: string;
+  yearFrom?: string;
+  yearTo?: string;
   dateRange?: { start?: string; end?: string };
 }
 
@@ -84,7 +93,9 @@ export interface AssetFacets {
   status: FacetEntry[];
   asset_type: FacetEntry[];
   manufacturer: FacetEntry[];
+  college: FacetEntry[];
   block: FacetEntry[];
+  floor: FacetEntry[];
   department: FacetEntry[];
   lifecycle: FacetEntry[];
   location_status: FacetEntry[];

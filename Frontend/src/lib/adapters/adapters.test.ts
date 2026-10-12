@@ -79,6 +79,15 @@ describe("asset adapter", () => {
     expect(mapAsset(assetRow).roomType).toBeUndefined();
   });
 
+  it("carries the centrally derived visual ID and the technical UUID", () => {
+    const ac = mapAsset({ ...assetRow, visual_id: "NC-MA-1F-CS-CCL1-0CA6C87C" });
+    expect(ac.visualId).toBe("NC-MA-1F-CS-CCL1-0CA6C87C");
+    expect(ac.uuid).toBe("123e4567-e89b-12d3-a456-426614174000");
+    expect(ac.id).toBe(assetRow.asset_uuid); // routing/QR identity untouched
+    // Rows served before visual_id existed map cleanly (callers fall back).
+    expect(mapAsset(assetRow).visualId).toBeUndefined();
+  });
+
   it("round-trips the status vocabulary", () => {
     expect(toUiStatus("working")).toBe("Working");
     expect(toUiStatus("not working")).toBe("Fault");

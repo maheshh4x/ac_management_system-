@@ -50,7 +50,33 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }, [user, isLoading, pathname, router]);
 
   if (isLoading) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center">Loading...</div>;
+    // Shell skeleton while auth initializes: static chrome shapes only, no
+    // data fetching and no protected content — the gate above still decides
+    // what renders once loading finishes.
+    return (
+      <div className="min-h-screen bg-slate-50 flex" aria-label="Loading" role="status">
+        <div className="hidden sm:block w-60 shrink-0 bg-white border-r border-slate-200 p-4 space-y-3">
+          <div className="h-8 rounded-lg bg-slate-100 animate-pulse" />
+          <div className="h-8 rounded-lg bg-slate-100 animate-pulse" />
+          <div className="h-8 rounded-lg bg-slate-100 animate-pulse" />
+          <div className="h-8 rounded-lg bg-slate-100 animate-pulse" />
+        </div>
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="h-14 bg-white border-b border-slate-200 flex items-center px-4">
+            <div className="h-6 w-48 rounded-lg bg-slate-100 animate-pulse" />
+          </div>
+          <div className="p-4 sm:p-6 space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="h-20 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+              <div className="h-20 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+              <div className="h-20 rounded-2xl bg-white border border-slate-200 animate-pulse hidden lg:block" />
+              <div className="h-20 rounded-2xl bg-white border border-slate-200 animate-pulse hidden lg:block" />
+            </div>
+            <div className="h-64 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!user && !PUBLIC_PATHS.includes(pathname) && !pathname.startsWith('/a/')) {

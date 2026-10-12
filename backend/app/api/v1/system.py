@@ -131,7 +131,7 @@ def dashboard_summary():
     scope applies.
     """
     # Local import: assets.py is a sibling module of the v1 package.
-    from app.api.v1.assets import JOINS, _build_filters
+    from app.api.v1.assets import JOINS, InvalidFilter, _build_filters
 
     user = get_current_user() or {}
     role = (user.get("role") or "VIEWER").upper()
@@ -143,7 +143,10 @@ def dashboard_summary():
     if (request.args.get("include_detail") or "").strip().lower() in {"0", "false", "no"}:
         include_detail = False
 
-    where, params = _build_filters(request.args)
+    try:
+        where, params = _build_filters(request.args)
+    except InvalidFilter as exc:
+        return error("INVALID_FILTER", str(exc), 400)
 
     # Role scope — appended AFTER the request filters so both share one
     # where_sql across KPIs, groupings, overdue rows and MTTR.
@@ -366,6 +369,274 @@ def dashboard_summary():
             "capacity_by_block": capacity_by_block,
             "overdue": overdue_rows,
             "my_jobs": my_jobs,
+        }
+    )
+
+
+# ── filter-driven inventory analytics ────────────────────────────────────────
+
+# Dimension key -> GROUP BY expression. Location dims use the effective
+# label (§7) so unresolved source text buckets by its imported value instead
+# of vanishing. Fixed whitelist: request values never reach the SQL text.
+_ANALYTICS_DIMS = {
+    "company": "COALESCE(NULLIF(a.ac_make_company, ''), 'Unknown')",
+    "year": "a.installation_year",
+    "department": location_sql.label("department"),
+    "block": location_sql.label("block"),
+    "floor": location_sql.label("floor"),
+    "type": "COALESCE(a.ac_type, 'Other')",
+    "capacity": "a.ac_capacity_ton",
+    "status": "a.operational_status",
+}
+
+_ANALYTICS_MEASURES = ("count", "avg_age", "total_capacity")
+
+# Dims whose NULL bucket is meaningless on a chart axis (a year axis with a
+# null bucket breaks every trend/heatmap); other dims keep their NULLs and
+# the frontend labels them Unknown.
+_ANALYTICS_NOT_NULL_DIMS = {"year", "capacity"}
+
+
+def _analytics_num(value):
+    """JSON-safe numerics (NUMERIC arrives as Decimal)."""
+    if isinstance(value, float) or type(value).__name__ == "Decimal":
+        return float(value)
+    return value
+
+
+@system_v1_bp.route("/api/v1/dashboard/analytics", methods=["GET"])
+@require_auth
+@require_permission("VIEW_ASSET")
+def dashboard_analytics():
+    """Filter-driven inventory analytics: one request, server aggregation.
+
+    Accepts the same filters as ``GET /assets`` (plus ``college``,
+    ``capacity_ton`` and the dynamic ``installed_from``/``installed_to``
+    year window) so every KPI and visualization describes the same slice.
+    Role scoping mirrors :func:`dashboard_summary` block-for-block —
+    technician mine-blocks, manager assigned-blocks, viewer counts-only —
+    keep the two in sync. All roles may call it (VIEW_ASSET); viewers get
+    aggregates, never rows.
+
+    Explorer: ``dim1`` (required for the explorer section), optional
+    ``dim2``, ``measure`` = count | avg_age | total_capacity. A dimension
+    given twice collapses to a single grouping. Year/capacity dims exclude
+    their NULL buckets; other dims keep NULLs for the frontend to label.
+    """
+    from app.api.v1.assets import JOINS, InvalidFilter, _build_filters
+
+    user = get_current_user() or {}
+    role = (user.get("role") or "VIEWER").upper()
+    assigned = list((user.get("profile") or {}).get("assigned_blocks") or [])
+    technician = role == "TECHNICIAN"
+
+    dim1 = (request.args.get("dim1") or "").strip().lower() or None
+    dim2 = (request.args.get("dim2") or "").strip().lower() or None
+    measure = (request.args.get("measure") or "count").strip().lower()
+    for dim in [d for d in (dim1, dim2) if d]:
+        if dim not in _ANALYTICS_DIMS:
+            return error("INVALID_DIMENSION", f"Unknown analytics dimension: {dim}.", 400)
+    if measure not in _ANALYTICS_MEASURES:
+        return error("INVALID_MEASURE", "measure must be one of: count, avg_age, total_capacity.", 400)
+    if dim1 is not None and dim1 == dim2:
+        dim2 = None
+
+    try:
+        where, params = _build_filters(request.args)
+    except InvalidFilter as exc:
+        return error("INVALID_FILTER", str(exc), 400)
+
+    # Role scope — mirrors dashboard_summary (keep in sync): canonical ids
+    # only, appended after the request filters.
+    if technician:
+        where.append(
+            "b.block_id IN ("
+            "SELECT b2.block_id FROM maintenance_work_orders w2"
+            " JOIN acs a2 ON a2.ac_id = w2.ac_id"
+            " LEFT JOIN asset_locations al2 ON al2.ac_id = a2.ac_id"
+            " LEFT JOIN rooms r2 ON r2.room_id = COALESCE(al2.room_id, a2.room_id)"
+            " LEFT JOIN floors f2 ON f2.floor_id = COALESCE(al2.floor_id, r2.floor_id)"
+            " LEFT JOIN blocks b2 ON b2.block_id = COALESCE(al2.block_id, f2.block_id)"
+            " WHERE w2.technician_id = %s AND w2.status <> 'CANCELLED'"
+            " AND b2.block_id IS NOT NULL)"
+        )
+        params.append(user.get("id"))
+        scope_label = "mine"
+    elif role == "FACILITY_MANAGER" and assigned:
+        where.append("b.block_id = ANY(%s)")
+        params.append(assigned)
+        scope_label = "blocks"
+    else:
+        scope_label = "counts" if role == "VIEWER" else "all"
+    where_sql = " AND ".join(where)
+
+    current_year = date.today().year
+    try:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "SELECT COUNT(*) AS total,"
+                " COUNT(*) FILTER (WHERE a.operational_status = 'WORKING') AS working,"
+                " COUNT(*) FILTER (WHERE a.operational_status IN ('OFFLINE', 'MAINTENANCE'))"
+                " AS offline_maintenance,"
+                " COALESCE(SUM(a.ac_capacity_ton), 0)::float AS total_capacity,"
+                " MIN(a.installation_year) AS year_min,"
+                f" MAX(a.installation_year) AS year_max {JOINS} WHERE {where_sql}",
+                tuple(params),
+            )
+            row = cur.fetchone()
+            kpis = {
+                "total": row["total"],
+                "working": row["working"],
+                "offline_maintenance": row["offline_maintenance"],
+                "total_capacity": row["total_capacity"],
+            }
+            year_range = {"min": row["year_min"], "max": row["year_max"]}
+
+            cur.execute(
+                "SELECT a.installation_year AS year, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
+                " GROUP BY 1 ORDER BY 1",
+                tuple(params),
+            )
+            install_by_year = [{"year": r["year"], "count": r["n"]} for r in cur.fetchall()]
+
+            cur.execute(
+                f"SELECT {_ANALYTICS_DIMS['company']} AS company,"
+                " a.installation_year AS year, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
+                " GROUP BY 1, 2 ORDER BY 2, 1 LIMIT 1000",
+                tuple(params),
+            )
+            company_by_year = [
+                {"company": r["company"], "year": r["year"], "count": r["n"]} for r in cur.fetchall()
+            ]
+
+            cur.execute(
+                f"SELECT {_ANALYTICS_DIMS['department']} AS department, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql}"
+                " GROUP BY 1 ORDER BY n DESC LIMIT 50",
+                tuple(params),
+            )
+            departments = [{"department": r["department"], "count": r["n"]} for r in cur.fetchall()]
+
+            cur.execute(
+                f"SELECT {_ANALYTICS_DIMS['block']} AS block, b.block_id AS block_id, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql}"
+                " GROUP BY 1, 2 ORDER BY n DESC LIMIT 50",
+                tuple(params),
+            )
+            blocks = [
+                {"block": r["block"], "block_id": r["block_id"], "count": r["n"]} for r in cur.fetchall()
+            ]
+
+            cur.execute(
+                f"SELECT {_ANALYTICS_DIMS['department']} AS department,"
+                " a.installation_year AS year, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
+                " GROUP BY 1, 2 ORDER BY 2, 1 LIMIT 2000",
+                tuple(params),
+            )
+            heatmap = [
+                {"department": r["department"], "year": r["year"], "count": r["n"]} for r in cur.fetchall()
+            ]
+
+            cur.execute(
+                "SELECT DISTINCT a.ac_capacity_ton AS ton"
+                f" {JOINS} WHERE {where_sql} AND a.ac_capacity_ton IS NOT NULL"
+                " ORDER BY 1",
+                tuple(params),
+            )
+            capacities = [_analytics_num(r["ton"]) for r in cur.fetchall()]
+
+            cur.execute(
+                "SELECT a.operational_status AS status, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql}"
+                " GROUP BY 1 ORDER BY n DESC",
+                tuple(params),
+            )
+            by_status = [{"status": r["status"], "count": r["n"]} for r in cur.fetchall()]
+
+            cur.execute(
+                "SELECT COALESCE(a.ac_type, 'Other') AS type, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql}"
+                " GROUP BY 1 ORDER BY n DESC LIMIT 20",
+                tuple(params),
+            )
+            by_type = [{"type": r["type"], "count": r["n"]} for r in cur.fetchall()]
+
+            cur.execute(
+                "SELECT a.ac_capacity_ton AS capacity_ton, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql} AND a.ac_capacity_ton IS NOT NULL"
+                " GROUP BY 1 ORDER BY 1",
+                tuple(params),
+            )
+            by_capacity = [
+                {"capacity_ton": _analytics_num(r["capacity_ton"]), "count": r["n"]} for r in cur.fetchall()
+            ]
+
+            explorer = None
+            if dim1 is not None:
+                if measure == "avg_age":
+                    value_sql = f"AVG({current_year} - a.installation_year)::float AS value"
+                    measure_where = "a.installation_year IS NOT NULL"
+                elif measure == "total_capacity":
+                    value_sql = "SUM(a.ac_capacity_ton)::float AS value"
+                    measure_where = "a.ac_capacity_ton IS NOT NULL"
+                else:
+                    value_sql = "COUNT(*) AS value"
+                    measure_where = None
+                extra = [measure_where] if measure_where else []
+                for dim in (dim1, dim2):
+                    if dim in _ANALYTICS_NOT_NULL_DIMS:
+                        col = "a.installation_year" if dim == "year" else "a.ac_capacity_ton"
+                        extra.append(f"{col} IS NOT NULL")
+                predicate = " AND ".join([where_sql, *extra])
+                if dim2 is not None:
+                    cur.execute(
+                        f"SELECT {_ANALYTICS_DIMS[dim1]} AS d1, {_ANALYTICS_DIMS[dim2]} AS d2,"
+                        f" {value_sql} {JOINS} WHERE {predicate}"
+                        " GROUP BY 1, 2 ORDER BY 1, 2 LIMIT 2000",
+                        tuple(params),
+                    )
+                    rows = [
+                        {"d1": r["d1"], "d2": r["d2"], "value": _analytics_num(r["value"])}
+                        for r in cur.fetchall()
+                    ]
+                else:
+                    cur.execute(
+                        f"SELECT {_ANALYTICS_DIMS[dim1]} AS d1, {value_sql}"
+                        f" {JOINS} WHERE {predicate}"
+                        " GROUP BY 1 ORDER BY 1 LIMIT 500",
+                        tuple(params),
+                    )
+                    rows = [
+                        {"d1": r["d1"], "d2": None, "value": _analytics_num(r["value"])}
+                        for r in cur.fetchall()
+                    ]
+                explorer = {"dim1": dim1, "dim2": dim2, "measure": measure, "rows": rows}
+            cur.close()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("dashboard analytics failed")
+        return error("ANALYTICS_FAILED", "Unable to build dashboard analytics.", 500)
+    return success(
+        {
+            "scope": scope_label,
+            "kpis": kpis,
+            "year_range": year_range,
+            "capacities": capacities,
+            "by_status": by_status,
+            "by_type": by_type,
+            "by_capacity": by_capacity,
+            "install_by_year": install_by_year,
+            "company_by_year": company_by_year,
+            "departments": departments,
+            "blocks": blocks,
+            "heatmap": heatmap,
+            "explorer": explorer,
         }
     )
 

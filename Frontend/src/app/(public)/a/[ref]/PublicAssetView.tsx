@@ -7,7 +7,8 @@ import { Loader2, LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { roleAssetDetail } from "@/lib/permissions";
 
-/** Exact reduced field set returned by GET /api/v1/public/assets/<ref>. */
+/** Exact reduced field set returned by GET /api/v1/public/assets/<ref>
+ * (plus the DERIVED visual_id — label-consistent human identifier). */
 export interface PublicAsset {
   asset_code: string | null;
   make: string | null;
@@ -19,6 +20,7 @@ export interface PublicAsset {
   room: string | null;
   operational_status: string | null;
   last_maintenance_date: string | null;
+  visual_id?: string | null;
 }
 
 function statusChipClass(status: string): string {
@@ -91,6 +93,14 @@ export function PublicAssetView({
             <p className="mt-1 text-sm text-slate-600">
               {[asset.make, asset.model].filter(Boolean).join(" ") || "—"}
             </p>
+            {asset.visual_id && (
+              <p
+                className="mt-1 font-mono text-sm font-semibold text-blue-700 break-all"
+                data-testid="public-visual-id"
+              >
+                {asset.visual_id}
+              </p>
+            )}
             <dl className="mt-4 space-y-2 text-sm">
               <Row label="Type" value={asset.type} />
               <Row

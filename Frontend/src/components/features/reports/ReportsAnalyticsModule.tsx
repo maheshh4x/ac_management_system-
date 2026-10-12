@@ -154,7 +154,7 @@ export function ReportsAnalyticsModule() {
     acs.forEach(ac => {
       const price = calculateACUnitValue(ac);
       csvRows.push([
-        `"${ac.id}"`,
+        `"${ac.visualId ?? ac.acId ?? ac.id}"`,
         `"${ac.make}"`,
         `"${ac.model}"`,
         `"${ac.type}"`,
@@ -728,7 +728,7 @@ export function ReportsAnalyticsModule() {
                 const estValue = calculateACUnitValue(ac);
                 return (
                   <tr key={ac.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-3 font-mono font-bold text-blue-700">{ac.id}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-blue-700" title={ac.id}>{ac.visualId ?? ac.acId ?? ac.id}</td>
                     <td className="px-4 py-3 text-slate-800 font-medium">{ac.make} {ac.model}</td>
                     <td className="px-4 py-3 text-slate-600">{ac.type}</td>
                     <td className="px-4 py-3 text-slate-600 font-semibold">{ac.capacity}</td>

@@ -19,6 +19,7 @@ from app.config.database import get_db_connection
 from app.core import error, success
 from app.middleware.rate_limit import rate_limit
 from app.services import location_sql
+from app.services.visual_id import visual_id_for_row
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,36 @@ _PUBLIC_FIELDS = (
     f" {location_sql.label('room')} AS room"
 )
 
+# Helper columns fetched only so _lookup_asset can DERIVE the Visual Asset
+# ID with the one centralized formatter; they are stripped from the payload
+# again and never serialized. Aliases match visual_id_for_row's keys.
+_PUBLIC_VISUAL_FIELDS = (
+    " a.asset_uuid,"
+    f" {location_sql.label('college')} AS college_name,"
+    f" {location_sql.label('block')} AS block_name,"
+    f" {location_sql.label('floor')} AS floor_name,"
+    f" {location_sql.label('department')} AS department_name,"
+    f" {location_sql.room_type_label()} AS room_type,"
+    f" COALESCE(al.room_id, a.room_id) AS room_id,"
+    " r.room_name AS canon_room_name, al.source_room_number_value"
+)
+
+_VISUAL_HELPER_KEYS = (
+    "asset_uuid",
+    "college_name",
+    "block_name",
+    "floor_name",
+    "department_name",
+    "room_type",
+    "room_id",
+    "canon_room_name",
+    "source_room_number_value",
+)
+
 
 def _lookup_asset(cur, ref: str):
     cur.execute(
-        f"""SELECT {_PUBLIC_FIELDS}
+        f"""SELECT {_PUBLIC_FIELDS},{_PUBLIC_VISUAL_FIELDS}
             {location_sql.ASSET_JOINS}
             WHERE a.asset_uuid::text = %s OR a.asset_code = %s OR a.ac_id = %s
             LIMIT 1""",
@@ -50,6 +77,14 @@ def _lookup_asset(cur, ref: str):
     if row is None:
         return None
     out = dict(row)
+    # Derived Visual Asset ID (label-consistent with the printed QR label);
+    # display-only — a failure yields null, never a 500 on the landing page.
+    try:
+        out["visual_id"] = visual_id_for_row(out)
+    except Exception:  # noqa: BLE001
+        out["visual_id"] = None
+    for key in _VISUAL_HELPER_KEYS:
+        out.pop(key, None)
     # Same JSON-safe conversion as the authenticated read model: DATE ->
     # ISO string (the encoder's default date rendering is not ISO).
     for key, value in list(out.items()):

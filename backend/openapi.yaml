@@ -109,6 +109,10 @@ paths:
         - {in: query, name: lifecycle, schema: {type: string}}
         - {in: query, name: location_status, schema: {type: string, enum: [ASSIGNED, PARTIAL, PENDING]}}
         - {in: query, name: due_before, schema: {type: string, format: date}}
+        - {in: query, name: college, schema: {type: string, description: Effective college (id, name or preserved source)}}
+        - {in: query, name: capacity_ton, schema: {type: number, description: Exact tonnage match}}
+        - {in: query, name: installed_from, schema: {type: integer, description: Installation year window start}}
+        - {in: query, name: installed_to, schema: {type: integer, description: Installation year window end}}
       responses: {"200": {description: Asset page}, "401": {description: Unauthenticated}, "400": {description: INVALID_PAGINATION}}
     post:
       tags: [assets]
@@ -119,10 +123,10 @@ paths:
       tags: [assets]
       summary: Distinct values + counts for the asset filter bar (VIEW_ASSET)
       description: >
-        One UNION ALL statement for all seven facets. Block/department
-        entries are FacetEntry objects (effective label + stable canonical
-        id, grouped by id so same-named entities never merge); every other
-        facet is a plain {value, count} bucket.
+        One UNION ALL statement for all nine facets. College/block/floor/
+        department entries are FacetEntry objects (effective label + stable
+        canonical id, grouped by id so same-named entities never merge);
+        every other facet is a plain {value, count} bucket.
       responses: {"200": {description: Facet counts}, "401": {description: Unauthenticated}}
   /assets/export:
     get:
@@ -588,7 +592,42 @@ paths:
         - {in: query, name: lifecycle, schema: {type: string}}
         - {in: query, name: location_status, schema: {type: string}}
         - {in: query, name: due_before, schema: {type: string, format: date}}
+        - {in: query, name: college, schema: {type: string}}
+        - {in: query, name: capacity_ton, schema: {type: number}}
+        - {in: query, name: installed_from, schema: {type: integer}}
+        - {in: query, name: installed_to, schema: {type: integer}}
       responses: {"200": {description: KPIs, by_status, by_manufacturer, by_type, by_block, by_capacity, overdue}, "401": {description: Unauthenticated}}
+  /dashboard/analytics:
+    get:
+      tags: [system]
+      summary: Filter-driven inventory analytics (VIEW_ASSET); same filters as /assets plus college/capacity_ton/installed_from/installed_to
+      description: >
+        One request, server-side aggregation for the analytics dashboard:
+        KPIs (total/working/offline+maintenance), the dynamic year_range,
+        install_by_year, company_by_year, departments, the department×year
+        heatmap, and the parameterized explorer (dim1, optional dim2,
+        measure count|avg_age|total_capacity). Same role scoping as
+        /dashboard/summary (scope in payload). Dimensions: company, year,
+        department, block, floor, type, capacity, status.
+      parameters:
+        - {in: query, name: search, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: department, schema: {type: string}}
+        - {in: query, name: college, schema: {type: string}}
+        - {in: query, name: asset_type, schema: {type: string}}
+        - {in: query, name: manufacturer, schema: {type: string}}
+        - {in: query, name: floor, schema: {type: string}}
+        - {in: query, name: room, schema: {type: string}}
+        - {in: query, name: lifecycle, schema: {type: string}}
+        - {in: query, name: location_status, schema: {type: string}}
+        - {in: query, name: capacity_ton, schema: {type: number}}
+        - {in: query, name: installed_from, schema: {type: integer}}
+        - {in: query, name: installed_to, schema: {type: integer}}
+        - {in: query, name: dim1, schema: {type: string, description: Explorer dimension (company/year/department/block/floor/type/capacity/status)}}
+        - {in: query, name: dim2, schema: {type: string, description: Optional second explorer dimension}}
+        - {in: query, name: measure, schema: {type: string, enum: [count, avg_age, total_capacity], default: count}}
+      responses: {"200": {description: Analytics payload}, "400": {description: INVALID_DIMENSION/INVALID_MEASURE/INVALID_FILTER}, "401": {description: Unauthenticated}}
   /audit:
     get:
       tags: [system]

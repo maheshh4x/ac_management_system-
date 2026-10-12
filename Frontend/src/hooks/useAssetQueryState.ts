@@ -5,7 +5,8 @@
  * views are shareable and survive reloads; search input is debounced 300ms
  * before it reaches the URL (and therefore the API).
  *
- * URL params: q, block, type, status, sort, page, size.
+ * URL params: q, block, college, floor, department, manufacturer, capacity,
+ * type, status, yfrom, yto, sort, page, size.
  * `searchInput` is the un-debounced value for the text field; `filters`
  * only updates (and thus queries fire) after the debounce settles.
  */
@@ -33,8 +34,15 @@ function parse(searchParams: URLSearchParams): QueryState {
     filters: {
       search: searchParams.get("q") ?? "",
       buildingId: searchParams.get("block") ?? "All",
+      collegeId: searchParams.get("college") ?? "All",
+      floorId: searchParams.get("floor") ?? "All",
+      departmentId: searchParams.get("department") ?? "All",
+      manufacturer: searchParams.get("manufacturer") ?? "All",
+      capacityTon: searchParams.get("capacity") ?? "All",
       acType: searchParams.get("type") ?? "All",
       status: searchParams.get("status") ?? "All",
+      yearFrom: searchParams.get("yfrom") ?? "",
+      yearTo: searchParams.get("yto") ?? "",
     },
     page: num("page", 1),
     pageSize: num("size", DEFAULT_PAGE_SIZE),
@@ -48,13 +56,33 @@ function clean(value: string | undefined): string | undefined {
 }
 
 export function activeFilterValues(filters: ACFilters): Required<
-  Pick<ACFilters, "search" | "buildingId" | "acType" | "status">
+  Pick<
+    ACFilters,
+    | "search"
+    | "buildingId"
+    | "collegeId"
+    | "floorId"
+    | "departmentId"
+    | "manufacturer"
+    | "capacityTon"
+    | "acType"
+    | "status"
+    | "yearFrom"
+    | "yearTo"
+  >
 > {
   return {
     search: clean(filters.search) ?? "",
     buildingId: clean(filters.buildingId) ?? "All",
+    collegeId: clean(filters.collegeId) ?? "All",
+    floorId: clean(filters.floorId) ?? "All",
+    departmentId: clean(filters.departmentId) ?? "All",
+    manufacturer: clean(filters.manufacturer) ?? "All",
+    capacityTon: clean(filters.capacityTon) ?? "All",
     acType: clean(filters.acType) ?? "All",
     status: clean(filters.status) ?? "All",
+    yearFrom: clean(filters.yearFrom) ?? "",
+    yearTo: clean(filters.yearTo) ?? "",
   };
 }
 
@@ -63,8 +91,15 @@ function serialize(state: QueryState): string {
   const f = activeFilterValues(state.filters);
   if (f.search) params.set("q", f.search);
   if (f.buildingId !== "All") params.set("block", f.buildingId);
+  if (f.collegeId !== "All") params.set("college", f.collegeId);
+  if (f.floorId !== "All") params.set("floor", f.floorId);
+  if (f.departmentId !== "All") params.set("department", f.departmentId);
+  if (f.manufacturer !== "All") params.set("manufacturer", f.manufacturer);
+  if (f.capacityTon !== "All") params.set("capacity", f.capacityTon);
   if (f.acType !== "All") params.set("type", f.acType);
   if (f.status !== "All") params.set("status", f.status);
+  if (f.yearFrom) params.set("yfrom", f.yearFrom);
+  if (f.yearTo) params.set("yto", f.yearTo);
   if (state.sort) params.set("sort", state.sort);
   if (state.page > 1) params.set("page", String(state.page));
   if (state.pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(state.pageSize));
@@ -148,9 +183,20 @@ export function useAssetQueryState(): AssetQueryState {
     (patch: Partial<ACFilters>) => {
       const base = stateRef.current;
       const searchChanged = patch.search !== undefined && patch.search !== base.filters.search;
-      const othersChanged = (["buildingId", "acType", "status"] as const).some(
-        (key) => key in patch && patch[key] !== base.filters[key],
-      );
+      const othersChanged = (
+        [
+          "buildingId",
+          "collegeId",
+          "floorId",
+          "departmentId",
+          "manufacturer",
+          "capacityTon",
+          "acType",
+          "status",
+          "yearFrom",
+          "yearTo",
+        ] as const
+      ).some((key) => key in patch && patch[key] !== base.filters[key]);
       if (searchChanged) setSearchInputState(patch.search!);
       if (othersChanged) {
         // Selects/chips apply immediately (search rides along if present);
@@ -184,7 +230,24 @@ export function useAssetQueryState(): AssetQueryState {
 
   const reset = useCallback(() => {
     setSearchInputState("");
-    push({ filters: { search: "", buildingId: "All", acType: "All", status: "All" }, page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: "" });
+    push({
+      filters: {
+        search: "",
+        buildingId: "All",
+        collegeId: "All",
+        floorId: "All",
+        departmentId: "All",
+        manufacturer: "All",
+        capacityTon: "All",
+        acType: "All",
+        status: "All",
+        yearFrom: "",
+        yearTo: "",
+      },
+      page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
+      sort: "",
+    });
   }, [push]);
 
   return {

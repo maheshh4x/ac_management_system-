@@ -112,7 +112,7 @@ export default function ViewerSearchPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-slate-900">{ac.id}</span>
+                  <span className="font-semibold text-slate-900" title={ac.id}>{ac.visualId ?? ac.acId ?? ac.id}</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${STATUS_COLORS[ac.status] || STATUS_COLORS['Offline']}`}>{ac.status}</span>
                 </div>
                 <p className="text-sm text-slate-600 mt-0.5">{ac.make} {ac.model} • {ac.type} • {ac.capacity}</p>
@@ -120,7 +120,7 @@ export default function ViewerSearchPage() {
                   <MapPin size={11} /> {ac.buildingName || ac.location.buildingId} → {ac.floorName || ac.location.floorId} → {ac.roomName || ac.location.roomId}
                 </div>
                 <p className="text-xs text-slate-400 mt-1">SN: {ac.serialNumber} • Last service: {ac.lastMaintenanceDate || '—'}</p>
-                <AcQrActions acId={ac.id} batchIds={acs.map((item) => item.id)} />
+                <AcQrActions acId={ac.id} batchIds={acs.map((item) => item.id)} asset={ac} />
               </div>
               <Link href="/campus" className="flex-shrink-0 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1">
                 <Eye size={12} /> Map

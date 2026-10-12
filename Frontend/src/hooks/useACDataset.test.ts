@@ -57,6 +57,11 @@ describe("toAssetQuery", () => {
       status: "Working",
       departmentId: "Computer Science",
       floorId: "Floor 1",
+      collegeId: "NITTTR-CHENNAI",
+      manufacturer: "Daikin",
+      capacityTon: "1.5",
+      yearFrom: "2020",
+      yearTo: "2024",
     });
 
     expect(query).toMatchObject({
@@ -66,6 +71,11 @@ describe("toAssetQuery", () => {
       status: "Working",
       department: "Computer Science",
       floor: "Floor 1",
+      college: "NITTTR-CHENNAI",
+      manufacturer: "Daikin",
+      capacityTon: "1.5",
+      installedFrom: "2020",
+      installedTo: "2024",
     });
   });
 
@@ -90,9 +100,14 @@ describe("toAssetQuery", () => {
       search: undefined,
       status: undefined,
       block: undefined,
+      college: undefined,
       department: undefined,
       assetType: undefined,
+      manufacturer: undefined,
+      capacityTon: undefined,
       floor: undefined,
+      installedFrom: undefined,
+      installedTo: undefined,
       dueBefore: undefined,
     });
   });

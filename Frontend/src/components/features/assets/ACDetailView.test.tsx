@@ -39,8 +39,10 @@ vi.mock("next/link", () => ({
 // Never load the three.js viewer in jsdom (it is already code-split in the app).
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
 
+const authState = vi.hoisted(() => ({ user: null as null | { role: string } }));
+
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: null }),
+  useAuth: () => ({ user: authState.user }),
 }));
 
 vi.mock("@/lib/api/maintenance", () => ({
@@ -163,6 +165,7 @@ let activeDetail: Record<string, unknown> = RESOLVED_DETAIL;
 
 beforeEach(() => {
   activeDetail = RESOLVED_DETAIL;
+  authState.user = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -176,6 +179,9 @@ beforeEach(() => {
       });
     }),
   );
+  // AcQrActions previews via object URLs (absent in jsdom).
+  Object.defineProperty(URL, "createObjectURL", { value: vi.fn(() => "blob:qr"), configurable: true });
+  Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
 });
 
 afterEach(() => {
@@ -288,5 +294,32 @@ describe("ACDetailView — location review strip (§15)", () => {
     expect(await screen.findByText("Phantom Block")).toBeTruthy(); // Building from source
     expect(await screen.findByText("Administration")).toBeTruthy(); // Department confirmed
     expect(await screen.findByText("ADMIN OFFICE")).toBeTruthy(); // Room = room_type, no room
+  });
+});
+
+describe("ACDetailView — visual asset ID", () => {
+  it("shows the derived Visual ID as the primary identifier (UUID demoted)", async () => {
+    activeDetail = { ...RESOLVED_DETAIL, visual_id: "NC-MA-1F-CS-CCL1-0CA6C87C" };
+    renderDetail();
+
+    // Twice: breadcrumb trail AND the detail heading both lead with it.
+    expect(await screen.findAllByText("NC-MA-1F-CS-CCL1-0CA6C87C")).toHaveLength(2);
+  });
+});
+
+describe("ACDetailView — asset QR card", () => {  it("shows no QR surface without a permitted role", async () => {
+    renderDetail();
+
+    await screen.findByText("Main Academic Block");
+    expect(screen.queryByText("Asset QR")).toBeNull();
+    expect(screen.queryByText("Download QR")).toBeNull();
+  });
+
+  it("shows the QR card with Download QR for SUPER_ADMIN", async () => {
+    authState.user = { role: "SUPER_ADMIN" };
+    renderDetail();
+
+    expect(await screen.findByText("Asset QR")).toBeTruthy();
+    expect(await screen.findByText("Download QR")).toBeTruthy();
   });
 });

@@ -39,7 +39,9 @@ BATCH = "/api/v1/assets/qr/batch"
 AC_PREFIX = "QRT-"
 BATCH_PREFIX = "QRB-"
 
-# The exact field set the Phase 6 plan allows on the public landing page.
+# The exact field set the Phase 6 plan allows on the public landing page,
+# plus the DERIVED visual_id (this task: label-consistent human identifier —
+# derived, never stored, exposes nothing the location labels don't already).
 PUBLIC_FIELDS = {
     "asset_code",
     "make",
@@ -51,6 +53,7 @@ PUBLIC_FIELDS = {
     "room",
     "operational_status",
     "last_maintenance_date",
+    "visual_id",
 }
 
 
@@ -343,6 +346,14 @@ def test_public_asset_exact_reduced_fields(anon, seeds):
     assert data["operational_status"] == "WORKING"
     assert data["last_maintenance_date"] == "2026-01-05"
 
+    # Derived Visual Asset ID (label-consistent, human-facing): normalized
+    # from the SAME effective location the page shows + the uuid suffix.
+    visual = data["visual_id"]
+    assert isinstance(visual, str) and visual
+    assert "MA-1F" in visual  # "Main Academic Block" -> MA, "Floor 1" -> 1F
+    assert "CCL1" in visual  # "CSE Computer Lab 1" -> CCL1
+    assert visual.endswith(seeds["uuid"].replace("-", "")[-8:].upper())
+
     # Belt and braces: the forbidden values themselves must never appear.
     blob = str(data)
     for forbidden in ("SN-QRT-SECRET", "T. Echnician", "internal remarks stay private", "ac_serial"):
@@ -439,3 +450,29 @@ def test_batch_unknown_ids_404(admin):
     r = admin.get(f"{BATCH}?ids=NO-SUCH-{uuid.uuid4().hex[:8]}")
     assert r.status_code == 404
     assert r.get_json()["error"]["code"] == "NO_ASSETS"
+
+
+def test_asset_edit_stays_backend_gated_for_viewer_and_anonymous(admin, viewer, anon, seeds):
+    """The public/scanned surface never edits: a VIEWER PATCH is refused by
+    the server (EDIT_ASSET), anonymous PATCH never authenticates — even
+    though the frontend hides the button, the backend remains authoritative.
+    """
+    ref = seeds["a1"]
+    before = seeds_snapshot(admin, ref)
+
+    r = viewer.patch(f"{QR_URL}/{ref}", json={"remarks": "viewer write attempt"})
+    assert r.status_code == 403, r.get_json()
+
+    r = anon.patch(f"{QR_URL}/{ref}", json={"remarks": "anonymous write attempt"})
+    assert r.status_code == 401, r.get_json()
+
+    # Nothing changed server-side.
+    assert seeds_snapshot(admin, ref) == before
+
+
+def seeds_snapshot(admin, ref):
+    """Minimal read-back proving the row is untouched (used above)."""
+    r = admin.get(f"{QR_URL}/{ref}")
+    assert r.status_code == 200, r.get_json()
+    data = r.get_json()["data"]
+    return (data["remarks"], data["location_status"])

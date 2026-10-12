@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, AlertOctagon, Wrench, PowerOff,
   MapPin, Calendar, User, Star, Zap, Building2, Tag,
   ClipboardList, Activity, Shield, FileText, Edit3, Save, X,
-  ChevronRight, Clock, AlertTriangle, Info, RefreshCw, MoveRight
+  ChevronRight, Clock, AlertTriangle, Info, RefreshCw, MoveRight, QrCode
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -19,6 +19,7 @@ import type { ExtendedAC } from '@/lib/types/asset';
 import { useJobs } from '@/lib/api/maintenance';
 import { useAuth } from '@/contexts/AuthContext';
 import { canEditInventory, hasPermission } from '@/lib/permissions';
+import { AcQrActions } from '@/components/features/qr/AcQrActions';
 
 interface InfoCardProps {
   label: string;
@@ -216,7 +217,7 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
         <ChevronRight size={14} className="text-slate-300" />
         <span className="text-slate-400">AC Assets</span>
         <ChevronRight size={14} className="text-slate-300" />
-        <span className="text-slate-900 font-semibold">{ac.id}</span>
+        <span className="text-slate-900 font-semibold" title={ac.id}>{ac.visualId ?? ac.acId ?? ac.id}</span>
       </motion.div>
 
       {/* Two-col hero layout */}
@@ -238,7 +239,9 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold text-slate-900 font-mono">{ac.id}</h1>
+                  <h1 className="text-2xl font-bold text-slate-900 font-mono" title={`Technical ID: ${ac.id}`}>
+                    {ac.visualId ?? ac.acId ?? ac.id}
+                  </h1>
                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusCfg.bg}`}>
                     {statusCfg.icon} {statusCfg.text}
                   </span>
@@ -316,6 +319,19 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
               <InfoCard label="Department" value={effectiveLocationText(ac, "department")} />
             </div>
           </div>
+
+          {/* Asset QR (reuses AcQrActions: preview + branded download + sheet
+              + regenerate; the panel self-gates to permitted roles and the
+              backend enforces every action — the card only renders where the
+              panel does, so nobody sees an empty card) */}
+          {user?.role === 'SUPER_ADMIN' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h3 className="text-xs font-bold uppercase text-slate-400 mb-3 flex items-center gap-1.5">
+              <QrCode size={13} /> Asset QR
+            </h3>
+            <AcQrActions acId={ac.acId ?? ac.id} asset={ac} />
+          </div>
+          )}
 
           {/* Actions (Admin only) */}
           {canEdit && (

@@ -303,9 +303,9 @@ export const ACTable: React.FC<ACTableProps> = ({
                     <Link
                       href={detailHref}
                       className="text-blue-700 hover:text-blue-900 hover:underline text-left cursor-pointer transition-colors"
-                      title={`Click to view detail page for ${ac.id}`}
+                      title={`Click to view detail page for ${ac.visualId ?? ac.acId ?? ac.id}`}
                     >
-                      {ac.id}
+                      {ac.visualId ?? ac.acId ?? ac.id}
                     </Link>
                   </td>
                   <td className="px-4 py-3.5">

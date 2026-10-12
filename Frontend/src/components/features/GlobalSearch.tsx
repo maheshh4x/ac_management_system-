@@ -105,7 +105,7 @@ export function GlobalSearch() {
                       <Airplay size={16} />
                     </div>
                     <div>
-                      <div className="font-semibold text-sm text-slate-800">{ac.make} {ac.model} <span className="text-slate-400 font-normal">({ac.id})</span></div>
+                      <div className="font-semibold text-sm text-slate-800">{ac.make} {ac.model} <span className="text-slate-400 font-normal">({ac.visualId ?? ac.id})</span></div>
                       <div className="text-xs text-slate-500 mt-0.5">Loc: {ac.location.roomId} • Status: {ac.status}</div>
                     </div>
                   </button>

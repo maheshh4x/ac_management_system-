@@ -3,13 +3,8 @@
 import React, { useState } from 'react';
 import { useACDataset } from '@/hooks/useACDataset';
 import { useAssetQueryState } from '@/hooks/useAssetQueryState';
-import { useAssetFacets } from '@/lib/api/assets';
 import { ACStatCards } from '@/components/features/ACStatCards';
-import { ACFilterBar, STATUSES } from '@/components/features/ACFilterBar';
-import { ACStatusChart } from '@/components/features/charts/ACStatusChart';
-import { ACTypeChart } from '@/components/features/charts/ACTypeChart';
-import { BuildingDistributionChart } from '@/components/features/charts/BuildingDistributionChart';
-import { ACCapacityChart } from '@/components/features/charts/ACCapacityChart';
+import { STATUSES } from '@/components/features/ACFilterBar';
 import { MaintenanceTrendChart } from '@/components/features/charts/MaintenanceTrendChart';
 import { useMaintenanceTrend } from '@/lib/api/maintenance';
 import { ImportACModal } from '@/components/features/csv-import/ImportACModal';
@@ -17,6 +12,7 @@ import { ACTable } from '@/components/features/ACTable';
 import { ProtectedAction } from '@/components/auth/ProtectedRoute';
 import { Upload } from 'lucide-react';
 import { inlineDraftToPayload } from '@/lib/adapters/asset';
+import { AnalyticsDashboard } from '@/components/features/analytics/AnalyticsDashboard';
 
 export default function AdminDashboardPage() {
   const query = useAssetQueryState();
@@ -28,10 +24,6 @@ export default function AdminDashboardPage() {
     loading,
     error,
     refreshData,
-    statusDistribution,
-    typeDistribution,
-    buildingDistribution,
-    capacityDistribution,
     pagination,
     updateACAsset,
     decommissionAC,
@@ -40,11 +32,6 @@ export default function AdminDashboardPage() {
     pageSize: query.pageSize,
     sort: query.sort || 'ac_id',
   });
-
-  const { data: facets } = useAssetFacets();
-  // Facet entries carry the stable canonical id (null for source-only
-  // values): filter by id, display the effective label (§8).
-  const buildingList = (facets?.block ?? []).map(b => ({ id: b.id ?? b.value, name: b.value, count: b.count }));
 
   // Monthly job counts from SQL (GET /reports/maintenance-trend, VIEW_REPORTS).
   // The chart previously fell back to a hardcoded DEFAULT_TREND_DATA array.
@@ -92,7 +79,7 @@ export default function AdminDashboardPage() {
         </ProtectedAction>
       </div>
 
-      {/* KPI Stat Cards */}
+      {/* KPI Stat Cards (with status drill-down) */}
       <ACStatCards
         stats={stats}
         loading={loading}
@@ -100,64 +87,18 @@ export default function AdminDashboardPage() {
         onStatClick={handleStatClick}
       />
 
-      {/* Filter Bar */}
-      <ACFilterBar
-        filters={{ ...query.filters, search: query.searchInput }}
-        onChange={query.setFilters}
-        onReset={query.reset}
-        buildingList={buildingList}
+      {/* Filter-driven analytics: global filters + KPIs + visualizations +
+          explorer + insights (the filter bar drives the table below too) */}
+      <AnalyticsDashboard
+        filters={query.filters}
+        searchInput={query.searchInput}
+        onFiltersChange={query.setFilters}
+        onResetFilters={query.reset}
+        kpiMode="extended"
       />
 
       {/* Interactive Charts Section Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Status Breakdown Donut Chart */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">AC Operational Status</h3>
-              <p className="text-xs text-slate-500">Live health breakdown</p>
-            </div>
-            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Real-time</span>
-          </div>
-          <ACStatusChart data={statusDistribution} loading={loading} error={error} onRetry={refreshData} />
-        </div>
-
-        {/* Type Breakdown Bar Chart */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">AC Type Distribution</h3>
-              <p className="text-xs text-slate-500">Split, Window, Cassette, Tower</p>
-            </div>
-            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Units</span>
-          </div>
-          <ACTypeChart data={typeDistribution} loading={loading} error={error} onRetry={refreshData} />
-        </div>
-
-        {/* Building Distribution Horizontal Bar Chart */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Building-wise AC Distribution</h3>
-              <p className="text-xs text-slate-500">Units deployed per building</p>
-            </div>
-            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Campus</span>
-          </div>
-          <BuildingDistributionChart data={buildingDistribution} loading={loading} error={error} onRetry={refreshData} />
-        </div>
-
-        {/* Capacity Breakdown Pie Chart */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">AC Capacity Breakdown (Tons)</h3>
-              <p className="text-xs text-slate-500">Tonnage distribution across units</p>
-            </div>
-            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Cooling</span>
-          </div>
-          <ACCapacityChart data={capacityDistribution} loading={loading} error={error} onRetry={refreshData} />
-        </div>
-
         {/* Maintenance Trend Line Chart */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between md:col-span-2 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">

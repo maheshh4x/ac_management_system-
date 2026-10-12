@@ -28,22 +28,26 @@ vi.mock("@/hooks/useAssetQueryState", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useACDataset", () => ({
-  useACDataset: () => ({
-    acs: [],
-    stats: null,
-    loading: false,
-    error: null,
-    refreshData: vi.fn(),
-    statusDistribution: [],
-    typeDistribution: [],
-    buildingDistribution: [],
-    capacityDistribution: [],
-    pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 },
-    updateACAsset: vi.fn(),
-    decommissionAC: vi.fn(),
-  }),
-}));
+vi.mock("@/hooks/useACDataset", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/useACDataset")>();
+  return {
+    ...actual,
+    useACDataset: () => ({
+      acs: [],
+      stats: null,
+      loading: false,
+      error: null,
+      refreshData: vi.fn(),
+      statusDistribution: [],
+      typeDistribution: [],
+      buildingDistribution: [],
+      capacityDistribution: [],
+      pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 },
+      updateACAsset: vi.fn(),
+      decommissionAC: vi.fn(),
+    }),
+  };
+});
 
 vi.mock("@/lib/api/maintenance", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/maintenance")>();
@@ -54,6 +58,16 @@ vi.mock("@/lib/api/assets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/assets")>();
   return { ...actual, useAssetFacets: () => ({ data: { block: [] } }) };
 });
+
+vi.mock("@/lib/api/analytics", () => ({
+  useAnalytics: () => ({
+    data: undefined,
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
 
 vi.mock("@/components/auth/ProtectedRoute", () => ({
   ProtectedAction: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -87,5 +101,13 @@ describe("AdminDashboardPage — maintenance trend building filter (§9)", () =>
     dashboardState.buildingId = "MAIN-ACADEMIC-BLOCK";
     render(<AdminDashboardPage />);
     expect(useMaintenanceTrend).toHaveBeenCalledWith({ block: "MAIN-ACADEMIC-BLOCK" });
+  });
+
+  it("mounts the shared analytics dashboard (filters, explorer, insights)", () => {
+    dashboardState.buildingId = "All";
+    const { getByText } = render(<AdminDashboardPage />);
+    expect(getByText("Explore Data")).toBeTruthy();
+    expect(getByText("Insights")).toBeTruthy();
+    expect(getByText("Department × Year")).toBeTruthy();
   });
 });

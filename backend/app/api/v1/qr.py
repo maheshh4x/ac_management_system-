@@ -31,7 +31,9 @@ _MAX_BATCH_LABELS = 96
 # Effective joins (§7): confirmed ids first, pre-014 mirror fallback after.
 _BATCH_SELECT = (
     "SELECT a.asset_uuid, a.asset_code, a.ac_make_company, a.ac_model_number,"
+    f" {location_sql.label('college')} AS college_name,"
     f" {location_sql.label('block')} AS block_name,"
+    f" {location_sql.label('department')} AS department_name,"
     f" {location_sql.label('floor')} AS floor_name,"
     f" {location_sql.label('room')} AS room_name"
     f" {location_sql.ASSET_JOINS}"
@@ -230,7 +232,9 @@ def _label_sheet_pdf(rows: list[dict]) -> bytes:
     """Render labels onto A4 sheet(s): 3 x 8 cells, dashed cut lines.
 
     Each cell: QR of the immutable payload + asset code + make/model +
-    location, so a printed sticker identifies the unit even offline.
+    effective college/block/department/floor/room, so a printed sticker
+    identifies the unit even offline. Blank levels are omitted, never
+    fabricated.
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
@@ -258,7 +262,8 @@ def _label_sheet_pdf(rows: list[dict]) -> bytes:
 
         payload = _asset_payload(row)
         img = ImageReader(io.BytesIO(qr_service.qr_png_bytes(payload)))
-        qr_px = min(cell_h * 0.6, cell_w * 0.5)
+        # QR sized so the text lines below always fit inside the cell.
+        qr_px = min(cell_h * 0.45, cell_w * 0.5)
         canvas.drawImage(
             img,
             x + (cell_w - qr_px) / 2,
@@ -275,11 +280,21 @@ def _label_sheet_pdf(rows: list[dict]) -> bytes:
         canvas.setFont("Helvetica", 6.5)
         model = " ".join(p for p in (row.get("ac_make_company"), row.get("ac_model_number")) if p)
         canvas.drawCentredString(x + cell_w / 2, text_y - 9, model[:40])
-        location = " > ".join(
-            p for p in (row.get("block_name"), row.get("floor_name"), row.get("room_name")) if p
-        )
+        location = " > ".join(p for p in (row.get("floor_name"), row.get("room_name")) if p)
         canvas.setFont("Helvetica", 6)
-        canvas.drawCentredString(x + cell_w / 2, text_y - 17, location[:52])
+        # College / block / department / floor-room: effective labels, blank
+        # levels omitted (never fabricated).
+        lines = [
+            row.get("college_name"),
+            row.get("block_name"),
+            row.get("department_name"),
+            location,
+        ]
+        line_y = text_y - 17
+        for text in lines:
+            if text:
+                canvas.drawCentredString(x + cell_w / 2, line_y, text[:52])
+                line_y -= 7
     canvas.showPage()
     canvas.save()
     return buf.getvalue()

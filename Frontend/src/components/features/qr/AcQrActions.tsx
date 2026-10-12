@@ -12,15 +12,21 @@ import {
   fetchQrPayload,
   regenerateQr,
 } from '@/lib/qr-service';
+import { downloadQrLabel, type QrLabelFields } from '@/lib/qr-label';
+import { effectiveLocationText } from '@/lib/adapters/asset';
+import type { ExtendedAC } from '@/lib/types/asset';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface AcQrActionsProps {
   acId: string;
   /** Refs to include on the printable A4 sheet (defaults to this asset). */
   batchIds?: string[];
+  /** Already-loaded asset for the branded label (no extra request is made
+      to build it — fields come from this object + the preview blob). */
+  asset?: ExtendedAC | null;
 }
 
-type Busy = 'png' | 'svg' | 'print' | 'regen' | null;
+type Busy = 'label' | 'png' | 'svg' | 'print' | 'regen' | null;
 
 function describeError(err: unknown): string {
   if (err instanceof ApiError) {
@@ -38,7 +44,7 @@ function describeError(err: unknown): string {
  * GET /assets/qr/batch) — there is no mock status store any more: the
  * code always exists, and regenerating only re-issues the label.
  */
-export function AcQrActions({ acId, batchIds }: AcQrActionsProps) {
+export function AcQrActions({ acId, batchIds, asset }: AcQrActionsProps) {
   const { user } = useAuth();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [payload, setPayload] = useState<string | null>(null);
@@ -46,6 +52,9 @@ export function AcQrActions({ acId, batchIds }: AcQrActionsProps) {
   const [busy, setBusy] = useState<Busy>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
   const previewRef = useRef<string | null>(null);
+  // The mount-time preview blob, reused for the branded label so Download
+  // QR fires zero additional API requests.
+  const previewBlobRef = useRef<Blob | null>(null);
 
   const showToast = useCallback((text: string, type: 'error' | 'success') => {
     setToastMessage({ text, type });
@@ -61,6 +70,7 @@ export function AcQrActions({ acId, batchIds }: AcQrActionsProps) {
         if (!active) return;
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
         const objectUrl = URL.createObjectURL(image);
+        previewBlobRef.current = image;
         previewRef.current = objectUrl;
         setPreviewUrl(objectUrl);
         setPayload(url);
@@ -86,6 +96,41 @@ export function AcQrActions({ acId, batchIds }: AcQrActionsProps) {
       const blob = await fetchQrImage(acId, format);
       downloadBlob(blob, `QR_${acId}.${format}`);
       showToast(format === 'png' ? 'QR image downloaded.' : 'QR image downloaded (SVG).', 'success');
+    } catch (err) {
+      showToast(describeError(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Primary Download QR: the branded printable label (college / block /
+      department / location / asset ID + the stable QR), composed locally
+      from the already-loaded asset and preview blob — zero new requests. */
+  const labelFields: QrLabelFields | null = asset
+    ? {
+        assetId: asset.visualId ?? asset.acId ?? asset.id,
+        make: asset.make,
+        model: asset.model,
+        college: effectiveLocationText(asset, 'college'),
+        block: effectiveLocationText(asset, 'block'),
+        department: effectiveLocationText(asset, 'department'),
+        floor: effectiveLocationText(asset, 'floor'),
+        room: effectiveLocationText(asset, 'room'),
+      }
+    : null;
+
+  const handleDownloadLabel = async () => {
+    if (busy) return;
+    setBusy('label');
+    try {
+      const blob = previewBlobRef.current ?? (await fetchQrImage(acId, 'png'));
+      if (labelFields) {
+        await downloadQrLabel(labelFields, blob, `QR_${acId}_label.png`);
+        showToast('Branded QR label downloaded.', 'success');
+      } else {
+        downloadBlob(blob, `QR_${acId}.png`);
+        showToast('QR image downloaded.', 'success');
+      }
     } catch (err) {
       showToast(describeError(err), 'error');
     } finally {
@@ -174,12 +219,22 @@ export function AcQrActions({ acId, batchIds }: AcQrActionsProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleDownload('png')}
+              onClick={handleDownloadLabel}
               disabled={busy !== null}
+              title="Download branded QR label (college, block, department, location, asset ID)"
               className="flex flex-1 items-center justify-center gap-2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
             >
+              {busy === 'label' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              Download QR
+            </button>
+            <button
+              onClick={() => handleDownload('png')}
+              disabled={busy !== null}
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+              title="Download raw QR image"
+            >
               {busy === 'png' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              Download PNG
+              PNG
             </button>
             <button
               onClick={() => handleDownload('svg')}

@@ -8,6 +8,9 @@ qr_version). Legacy /api/acs keeps working until task 8 removes it.
 
 from __future__ import annotations
 
+import logging
+import re
+
 from flask import Blueprint, request
 from psycopg2.extras import RealDictCursor
 
@@ -18,8 +21,10 @@ from app.core import error, paginated, success
 from app.services import location_sql
 from app.services.qr_service import QR_VERSION
 from app.services.status_map import normalize_status_filter
+from app.services.visual_id import visual_id_for_row
 
 assets_v1_bp = Blueprint("assets_v1", __name__)
+logger = logging.getLogger(__name__)
 
 ALLOWED_STATUSES = None  # free-text legacy statuses allowed; lifecycle validated on write
 
@@ -80,6 +85,13 @@ def _serialize(row: dict) -> dict:
     # asset_uuid may come back as UUID object
     if out.get("asset_uuid") is not None:
         out["asset_uuid"] = str(out["asset_uuid"])
+    # Visual Asset ID: derived display identifier (location + uuid suffix),
+    # computed by the single centralized formatter — never stored, always
+    # current. The UUID stays the technical identity underneath.
+    try:
+        out["visual_id"] = visual_id_for_row(out)
+    except Exception:  # noqa: BLE001 - display-only; a row must never 500 for its label
+        out["visual_id"] = None
     # Nested effective-location payload (§7): confirmed ids + preserved
     # source + per-field statuses for rows that carry location columns.
     loc = location_sql.location_object(out)
@@ -114,6 +126,73 @@ def _like_literal(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# ── Visual Asset ID search ─────────────────────────────────────────────────
+# A Visual-ID-shaped query: >= 2 dash-separated alphanumeric segments whose
+# LAST segment is the hex UUID suffix. Ordinary dashed ac_id/tag searches
+# keep matching through the normal ILIKE path; this only ever ADDS candidates
+# (OR), never replaces the textual search — so UUID/ac_id search is preserved.
+_VISUAL_ID_SHAPE_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$")
+_HEX_SEGMENT_RE = re.compile(r"^[0-9a-fA-F]{4,12}$")
+
+
+def _looks_like_visual_id(text: str | None) -> bool:
+    if not text or not _VISUAL_ID_SHAPE_RE.match(text):
+        return False
+    return bool(_HEX_SEGMENT_RE.match(text.rsplit("-", 1)[-1]))
+
+
+# Columns the centralized formatter needs, aliased to the exact keys
+# visual_id_for_row() reads (app.services.visual_id) — no second format.
+_VISUAL_ID_SELECT = f"""
+    a.ac_id, a.asset_uuid,
+    {location_sql.label('college')} AS college_name,
+    {location_sql.label('block')} AS block_name,
+    {location_sql.label('floor')} AS floor_name,
+    {location_sql.label('department')} AS department_name,
+    r.room_name AS canon_room_name,
+    {location_sql.room_type_label()} AS room_type,
+    COALESCE(al.room_id, a.room_id) AS room_id,
+    al.source_room_number_value
+"""
+
+# Bound so one search can never stream an unbounded table through Python.
+_VISUAL_ID_SCAN_LIMIT = 5000
+
+
+def _visual_id_candidates(search: str, where: list[str], params: list) -> list[str]:
+    """ac_ids whose derived Visual ID contains ``search`` (case-insensitive).
+
+    Normalization lives in exactly ONE place (``app.services.visual_id``):
+    this helper only fetches the already-filtered rows (LIMIT-bounded) and
+    asks that formatter. Any failure degrades to the plain textual search —
+    a search box must never 500.
+    """
+    where_sql = ("WHERE " + " AND ".join(where)) if where else "WHERE TRUE"
+    try:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                f"SELECT {_VISUAL_ID_SELECT} {JOINS} {where_sql} LIMIT {_VISUAL_ID_SCAN_LIMIT}",
+                tuple(params),
+            )
+            rows = cur.fetchall()
+            cur.close()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - degraded search, never an error page
+        return []
+    needle = search.upper()
+    matches: list[str] = []
+    for row in rows:
+        try:
+            if needle in visual_id_for_row(row).upper():
+                matches.append(row["ac_id"])
+        except Exception:  # noqa: BLE001 - one bad row must not drop the rest
+            continue
+    return matches
+
+
 def clean_filter(value: str | None) -> str:
     """Normalise one filter argument: blank and the UI's literal "All"
     sentinel both mean "no filter" (shared with the /reports/* builders).
@@ -127,6 +206,15 @@ def clean_filter(value: str | None) -> str:
     """
     text = (value or "").strip()
     return "" if text == "All" else text
+
+
+class InvalidFilter(ValueError):
+    """A filter argument failed validation (400, never a SQLSTATE 500).
+
+    Raised by :func:`_build_filters` for the validated analytics params
+    (capacity_ton, installed_from/to); every caller translates it to an
+    INVALID_FILTER error response.
+    """
 
 
 def _build_filters(args) -> tuple[list[str], list]:
@@ -167,6 +255,11 @@ def _build_filters(args) -> tuple[list[str], list]:
         clause, dept_params = location_sql.filter_match("department", department)
         where.append(clause)
         params += dept_params
+    college = clean_filter(args.get("college"))
+    if college:
+        clause, college_params = location_sql.filter_match("college", college)
+        where.append(clause)
+        params += college_params
 
     like("a.ac_type", clean_filter(args.get("asset_type")))
     like("a.ac_make_company", clean_filter(args.get("manufacturer")))
@@ -189,14 +282,46 @@ def _build_filters(args) -> tuple[list[str], list]:
         where.append("a.next_service_date <= %s")
         params.append(due_before)
 
+    # Exact tonnage match (dropdown of data values client-side; garbage is a
+    # 400, never a SQLSTATE 500).
+    capacity_ton = clean_filter(args.get("capacity_ton"))
+    if capacity_ton:
+        try:
+            params.append(float(capacity_ton))
+        except (TypeError, ValueError) as exc:
+            raise InvalidFilter("capacity_ton must be a number") from exc
+        where.append("a.ac_capacity_ton = %s")
+
+    # Installation-year window (dynamic options from the analytics
+    # year_range; reversed or non-integer bounds are a 400).
+    installed_from = clean_filter(args.get("installed_from"))
+    installed_to = clean_filter(args.get("installed_to"))
+    try:
+        year_from = int(installed_from) if installed_from else None
+        year_to = int(installed_to) if installed_to else None
+    except (TypeError, ValueError) as exc:
+        raise InvalidFilter("installed_from/installed_to must be years with from <= to") from exc
+    if year_from is not None and year_to is not None and year_from > year_to:
+        raise InvalidFilter("installed_from/installed_to must be years with from <= to")
+    if year_from is not None:
+        where.append("a.installation_year >= %s")
+        params.append(year_from)
+    if year_to is not None:
+        where.append("a.installation_year <= %s")
+        params.append(year_to)
+
     search = clean_filter(args.get("search"))
     if search:
         # Global search over identity + EFFECTIVE location (§10): canonical
         # names/ids and every preserved source value, through the same
         # centralized expressions the readers use — no second implementation.
+        # The technical UUID stays searchable, and a Visual-ID-shaped query
+        # additionally ORs in rows whose DERIVED id contains it (computed by
+        # the one centralized formatter, never re-implemented in SQL).
         pattern = f"%{search}%"
-        where.append(
+        clause = (
             "(a.ac_id ILIKE %s OR a.asset_code ILIKE %s OR a.ac_serial_number ILIKE %s"
+            " OR a.asset_uuid::text ILIKE %s"
             " OR a.ac_make_company ILIKE %s OR a.ac_model_number ILIKE %s"
             f" OR {location_sql.label('block')} ILIKE %s"
             f" OR {location_sql.label('floor')} ILIKE %s"
@@ -206,7 +331,16 @@ def _build_filters(args) -> tuple[list[str], list]:
             " OR al.source_department_value ILIKE %s OR al.source_room_number_value ILIKE %s"
             " OR al.source_room_type_value ILIKE %s)"
         )
-        params += [pattern] * 15
+        search_params = [pattern] * 16
+        if _looks_like_visual_id(search):
+            candidates = _visual_id_candidates(search, where, params)
+            if candidates:
+                # The whole element stays parenthesized so the surrounding
+                # AND-join can never leak the OR across sibling clauses.
+                clause = f"({clause}) OR (a.ac_id = ANY(%s))"
+                search_params.append(candidates)
+        where.append(clause)
+        params += search_params
 
     # Explicit lifecycle browsing includes decommissioned rows; otherwise the
     # historic active-only default applies.
@@ -234,7 +368,10 @@ def list_assets():
     except ValueError:
         return error("INVALID_PAGINATION", "page and page_size must be integers.", 400)
 
-    where, params = _build_filters(request.args)
+    try:
+        where, params = _build_filters(request.args)
+    except InvalidFilter as exc:
+        return error("INVALID_FILTER", str(exc), 400)
     where_sql = "WHERE " + " AND ".join(where)
     order_sql = _sort_clause(request.args.get("sort"))
     try:
@@ -253,6 +390,7 @@ def list_assets():
         finally:
             conn.close()
     except Exception:
+        logger.exception("asset list failed")
         return error("ASSET_LIST_FAILED", "Unable to list assets.", 500)
     return paginated(items, page, page_size, total)
 
@@ -263,11 +401,11 @@ def list_assets():
 def asset_facets():
     """Distinct values + counts for the filter bar (server-driven).
 
-    One statement for all seven facets: the individual GROUP BY legs are
+    One statement for all nine facets: the individual GROUP BY legs are
     combined with UNION ALL (each leg keeps its original expression, WHERE,
     ORDER BY and LIMIT 100, so the returned values are byte-identical), and
     the outer ORDER BY restores the per-facet ``count DESC, value`` order.
-    Against a remote database this is one round trip instead of seven —
+    Against a remote database this is one round trip instead of nine —
     the endpoint measured 8 statements / ~891 ms in production logs before
     the consolidation.
     """
@@ -280,14 +418,16 @@ def asset_facets():
         # Location facets use the effective label (§7): canonical name/id,
         # then the preserved source text, so unresolved rows surface as
         # their imported value instead of an empty bucket.
+        "college": location_sql.label_or("college", "''"),  # resolved via JOINS
         "block": location_sql.label_or("block", "''"),  # resolved via JOINS
+        "floor": location_sql.label_or("floor", "''"),  # resolved via JOINS
         "department": location_sql.label_or("department", "''"),
     }
     # Location facets additionally carry the stable canonical id (None for
     # source-only values) and group by (id, value): two distinct canonical
     # entities that share a display name are never silently merged, and the
     # dashboard can filter by canonical id instead of display text.
-    location_facets = ("block", "department")
+    location_facets = ("college", "block", "floor", "department")
     active_where = "WHERE COALESCE(a.is_active, TRUE) = TRUE"
     out: dict[str, list[dict]] = {key: [] for key in facets}
     try:
@@ -482,7 +622,10 @@ def export_assets():
     if fmt != "csv":
         return error("UNSUPPORTED_FORMAT", "Only format=csv is supported.", 400)
 
-    where, params = _build_filters(request.args)
+    try:
+        where, params = _build_filters(request.args)
+    except InvalidFilter as exc:
+        return error("INVALID_FILTER", str(exc), 400)
     where_sql = "WHERE " + " AND ".join(where)
     order_sql = _sort_clause(request.args.get("sort"))
 
@@ -496,7 +639,10 @@ def export_assets():
             # BOM so Excel opens the UTF-8 file with correct encoding.
             buffer.write("\ufeff")
             writer = csv_mod.writer(buffer)
-            writer.writerow(columns)
+            # The Visual Asset ID rides alongside the technical keys: it is
+            # derived per row by the centralized formatter (same function as
+            # the API payloads), never stored.
+            writer.writerow([*columns, "visual_id"])
             yield buffer.getvalue()
             buffer.seek(0)
             buffer.truncate()
@@ -505,8 +651,14 @@ def export_assets():
                 if not batch:
                     break
                 for record in batch:
+                    row = dict(record)
+                    try:
+                        visual_id = visual_id_for_row(row)
+                    except Exception:  # noqa: BLE001 - display-only, never break the export
+                        visual_id = None
                     writer.writerow(
-                        [_iso(record[c]) if hasattr(record[c], "isoformat") else record[c] for c in columns]
+                        [_iso(row[c]) if hasattr(row[c], "isoformat") else row[c] for c in columns]
+                        + [visual_id]
                     )
                 yield buffer.getvalue()
                 buffer.seek(0)

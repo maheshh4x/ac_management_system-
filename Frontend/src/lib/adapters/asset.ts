@@ -82,6 +82,9 @@ export const apiAssetSchema = z
     created_at: z.string().nullish(),
     updated_at: z.string().nullish(),
     location: apiLocationSchema.nullish(),
+    // Centrally derived display identifier (backend visual_id.py); rows
+    // served before it existed simply map to undefined (callers fall back).
+    visual_id: z.string().nullish(),
   })
   .loose();
 
@@ -146,6 +149,10 @@ export function mapAsset(row: ApiAsset): ExtendedAC {
   return {
     id: a.asset_uuid ?? a.ac_id, // stable URL/QR key per vocabulary table
     acId: a.ac_id,
+    uuid: a.asset_uuid ?? undefined, // technical identity (QR payload, routing)
+    // Human-readable identifier, derived server-side from the effective
+    // location + uuid suffix (visual_id.py). Display only — never identity.
+    visualId: a.visual_id ?? undefined,
     make: a.ac_make_company ?? "",
     model: a.ac_model_number ?? "",
     capacity: ton !== undefined ? `${ton} Ton` : "",

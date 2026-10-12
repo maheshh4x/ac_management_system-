@@ -257,8 +257,9 @@ export default function LocationReviewPanel() {
                         <Link
                           href={roleAssetDetail(user?.role ?? null, ac.id)}
                           className="font-semibold text-indigo-600 hover:underline"
+                          title={ac.id}
                         >
-                          {ac.acId ?? ac.id}
+                          {ac.visualId ?? ac.acId ?? ac.id}
                         </Link>
                         <p className="text-[10px] text-slate-400">
                           {[ac.make, ac.model].filter(Boolean).join(' ') || '—'}

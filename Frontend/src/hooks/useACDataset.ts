@@ -65,9 +65,14 @@ export function toAssetQuery(filters?: ACFilters, options: DatasetOptions = {}):
     search: cleanFilter(filters?.search),
     status: cleanFilter(filters?.status),
     block: cleanFilter(filters?.buildingId),
+    college: cleanFilter(filters?.collegeId),
     department: cleanFilter(filters?.departmentId),
     assetType: cleanFilter(filters?.acType),
+    manufacturer: cleanFilter(filters?.manufacturer),
+    capacityTon: cleanFilter(filters?.capacityTon),
     floor: cleanFilter(filters?.floorId),
+    installedFrom: cleanFilter(filters?.yearFrom),
+    installedTo: cleanFilter(filters?.yearTo),
     dueBefore: filters?.dateRange?.end || undefined,
   };
 }

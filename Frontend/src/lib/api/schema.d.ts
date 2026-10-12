@@ -63,6 +63,10 @@ export interface paths {
                     lifecycle?: string;
                     location_status?: "ASSIGNED" | "PARTIAL" | "PENDING";
                     due_before?: string;
+                    college?: string;
+                    capacity_ton?: number;
+                    installed_from?: number;
+                    installed_to?: number;
                 };
                 header?: never;
                 path?: never;
@@ -142,7 +146,7 @@ export interface paths {
         };
         /**
          * Distinct values + counts for the asset filter bar (VIEW_ASSET)
-         * @description One UNION ALL statement for all seven facets. Block/department entries are FacetEntry objects (effective label + stable canonical id, grouped by id so same-named entities never merge); every other facet is a plain {value, count} bucket.
+         * @description One UNION ALL statement for all nine facets. College/block/floor/ department entries are FacetEntry objects (effective label + stable canonical id, grouped by id so same-named entities never merge); every other facet is a plain {value, count} bucket.
          */
         get: {
             parameters: {
@@ -2175,6 +2179,10 @@ export interface paths {
                     lifecycle?: string;
                     location_status?: string;
                     due_before?: string;
+                    college?: string;
+                    capacity_ton?: number;
+                    installed_from?: number;
+                    installed_to?: number;
                 };
                 header?: never;
                 path?: never;
@@ -2184,6 +2192,75 @@ export interface paths {
             responses: {
                 /** @description KPIs */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthenticated */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filter-driven inventory analytics (VIEW_ASSET); same filters as /assets plus college/capacity_ton/installed_from/installed_to
+         * @description One request, server-side aggregation for the analytics dashboard: KPIs (total/working/offline+maintenance), the dynamic year_range, install_by_year, company_by_year, departments, the department×year heatmap, and the parameterized explorer (dim1, optional dim2, measure count|avg_age|total_capacity). Same role scoping as /dashboard/summary (scope in payload). Dimensions: company, year, department, block, floor, type, capacity, status.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    status?: string;
+                    block?: string;
+                    department?: string;
+                    college?: string;
+                    asset_type?: string;
+                    manufacturer?: string;
+                    floor?: string;
+                    room?: string;
+                    lifecycle?: string;
+                    location_status?: string;
+                    capacity_ton?: number;
+                    installed_from?: number;
+                    installed_to?: number;
+                    dim1?: string;
+                    dim2?: string;
+                    measure?: "count" | "avg_age" | "total_capacity";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Analytics payload */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description INVALID_DIMENSION/INVALID_MEASURE/INVALID_FILTER */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };

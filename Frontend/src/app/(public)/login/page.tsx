@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { ShieldCheck, Mail, Lock, LogIn, Loader2 } from 'lucide-react';
+import { ShieldCheck, Mail, Lock, LogIn } from 'lucide-react';
 import { ApiError } from '@/lib/api/client';
+import { TwinOrbit } from '@/components/ui/TwinOrbit';
 
 export default function LoginPage() {
   const { signIn } = useAuth();
@@ -135,7 +136,7 @@ export default function LoginPage() {
                     disabled={isSubmitting}
                     className="flex w-full justify-center items-center rounded-xl bg-blue-600 px-3 py-3 text-sm font-bold text-white shadow-md hover:bg-blue-700 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-all active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
                   >
-                    {isSubmitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <LogIn className="w-5 h-5 mr-2" />}
+                    {isSubmitting ? <TwinOrbit className="w-5 h-5 mr-2" /> : <LogIn className="w-5 h-5 mr-2" />}
                     {isSubmitting ? 'Opening dashboard...' : 'Sign in to Dashboard'}
                   </button>
                 </div>
