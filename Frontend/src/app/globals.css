@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-brand: #2563eb;
+  --color-brand-light: #3b82f6;
+  --color-brand-accent: #60a5fa;
+  
+  --color-success: #047857;
+  --color-warning: #92400E;
+  --color-danger: #B91C1C;
+  --color-info: #4F8EF7;
+  
+  --color-card-border: rgba(226, 232, 240, 0.8);
+  --color-card-bg: rgba(255, 255, 255, 1);
+  --color-card-hover: rgba(255, 255, 255, 1);
+  
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0F172A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0F172A;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar for premium feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(7, 59, 53, 0.2);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(7, 59, 53, 0.4);
+}
+
+/* --- Premium UI Utilities --- */
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 24px -6px rgba(7, 59, 53, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-lg);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 32px -8px rgba(7, 59, 53, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+  transform: translateY(-2px);
+}
+
+.text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-brand {
+  background-image: linear-gradient(135deg, var(--color-brand), var(--color-brand-accent));
+}
+
+/* --- Landing Page Animations & Utilities --- */
+
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+}
+.animate-blob {
+  animation: blob 10s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes scroll-pill {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(20px); opacity: 0; }
+}
+.animate-scroll-pill {
+  animation: scroll-pill 1.5s cubic-bezier(0.15, 0.41, 0.69, 0.94) infinite;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(0.99); }
+}
+.animate-pulse-slow {
+  animation: pulse-slow 4s ease-in-out infinite;
+}
+
+.animation-delay-150 {
+  animation-delay: 150ms;
+}
+.animation-delay-300 {
+  animation-delay: 300ms;
+}
+.animation-delay-500 {
+  animation-delay: 500ms;
+}
+.animation-delay-2000 {
+  animation-delay: 2000ms;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+.rotate-x-12 {
+  transform: rotateX(12deg) rotateZ(var(--tw-rotate-z, 0deg)) scale(var(--tw-scale-x, 1)) scale(var(--tw-scale-y, 1)) translateZ(var(--tw-translate-z, 0));
+}
+.rotate-z-12 {
+  --tw-rotate-z: 12deg;
+  transform: rotateX(var(--tw-rotate-x, 20deg)) rotateZ(12deg) scale(var(--tw-scale-x, 1)) scale(var(--tw-scale-y, 1)) translateZ(var(--tw-translate-z, 0));
+}
+.translate-z-10 {
+  --tw-translate-z: 10px;
+  transform: rotateX(var(--tw-rotate-x, 12deg)) rotateZ(var(--tw-rotate-z, 12deg)) translateZ(10px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-blob, .animate-scroll-pill {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Print / "Export Report" (Phase 7, FE task 2) ───────────────────────────
+   "Export Report" calls window.print(). The portal shell is a `h-screen
+   overflow-hidden` flex app, which would clip everything to one viewport on
+   paper, so the shell is un-clipped, the navigation chrome is dropped, and
+   the active report is laid out at full width.
+
+   Two opt-out hooks:
+     [data-print="hide"]  on persistent chrome (sidebar, top bar, assistant)
+     .no-print            on per-page action controls (buttons, filters)   */
+@media print {
+  [data-print="hide"], .no-print {
+    display: none !important;
+  }
+
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  /* Un-clip the flex/overflow shell so multi-page reports paginate. */
+  [data-print="page"] {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  [data-print="main"] {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  [data-print="main"] > div {
+    max-width: none !important;
+    height: auto !important;
+  }
+
+  /* Keep colours legible when browsers strip backgrounds by default. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  h1, h2, h3 {
+    break-after: avoid;
+  }
+  table {
+    width: 100% !important;
+    page-break-inside: auto;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+}

@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>College AC Management System — Backend Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: light dark;
+  --paper:#F5F7FA;
+  --card:#FFFFFF;
+  --ink:#161D26;
+  --ink-2:#47535F;
+  --ink-3:#77838F;
+  --rule:#D9DFE7;
+  --rule-strong:#A9B4C2;
+  --accent:#12557E;
+  --accent-soft:#E3EDF5;
+  --code-bg:#0E1620;
+  --code-ink:#D6E2EE;
+  --code-key:#7EC4F2;
+  --code-str:#9FD59A;
+  --code-com:#7C8B99;
+
+  --dg-ink:#16202B;
+  --dg-blue-f:#DCEAFB;   --dg-blue-s:#4A90D9;
+  --dg-green-f:#D8F0E2;  --dg-green-s:#3E9E6A;
+  --dg-amber-f:#FCE7CF;  --dg-amber-s:#E08A34;
+  --dg-purple-f:#E9E0F8; --dg-purple-s:#8A63C7;
+  --dg-red-f:#FBDDE0;    --dg-red-s:#DB5F6A;
+  --dg-teal-f:#D3EFEF;   --dg-teal-s:#2E9C9C;
+  --dg-gray-f:#E6EAF0;   --dg-gray-s:#8A94A6;
+  --dg-line:#5C6B7A;
+  --dg-figbg:#FBFCFE;
+
+  box-sizing:border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+:root:not([data-theme="light"]){ @media (prefers-color-scheme: dark){} }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0F141A;
+    --card:#151C24;
+    --ink:#E8EEF5;
+    --ink-2:#AAB7C4;
+    --ink-3:#7E8B99;
+    --rule:#28323D;
+    --rule-strong:#3C4856;
+    --accent:#7FB7DE;
+    --accent-soft:#17242F;
+    --code-bg:#0A1119;
+    --dg-ink:#E9F0F7;
+    --dg-blue-f:#1D3A55;   --dg-blue-s:#5AA0DC;
+    --dg-green-f:#17402C;  --dg-green-s:#54B683;
+    --dg-amber-f:#4A3316;  --dg-amber-s:#D9922F;
+    --dg-purple-f:#31244A; --dg-purple-s:#9C7BD6;
+    --dg-red-f:#48222A;    --dg-red-s:#DE7480;
+    --dg-teal-f:#12393B;   --dg-teal-s:#3FB0B0;
+    --dg-gray-f:#242D38;   --dg-gray-s:#7C8896;
+    --dg-line:#8A97A5;
+    --dg-figbg:#111820;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F141A; --card:#151C24; --ink:#E8EEF5; --ink-2:#AAB7C4; --ink-3:#7E8B99;
+  --rule:#28323D; --rule-strong:#3C4856; --accent:#7FB7DE; --accent-soft:#17242F;
+  --code-bg:#0A1119; --dg-ink:#E9F0F7;
+  --dg-blue-f:#1D3A55; --dg-blue-s:#5AA0DC; --dg-green-f:#17402C; --dg-green-s:#54B683;
+  --dg-amber-f:#4A3316; --dg-amber-s:#D9922F; --dg-purple-f:#31244A; --dg-purple-s:#9C7BD6;
+  --dg-red-f:#48222A; --dg-red-s:#DE7480; --dg-teal-f:#12393B; --dg-teal-s:#3FB0B0;
+  --dg-gray-f:#242D38; --dg-gray-s:#7C8896; --dg-line:#8A97A5; --dg-figbg:#111820;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%; scroll-behavior:smooth; scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);}
+body{
+  margin:0; min-height:100%;
+  background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:16px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- title block (engineering drawing style) ---------- */
+.titleblock{
+  border-bottom:2px solid var(--rule-strong);
+  background:var(--card);
+}
+.titleblock .inner{max-width:1180px;margin:0 auto;padding:2.4rem 1.25rem 0}
+.tb-grid{
+  display:grid;grid-template-columns:1fr;gap:0;
+  border:1.5px solid var(--rule-strong);
+}
+.tb-main{padding:1.5rem 1.4rem;border-bottom:1.5px solid var(--rule-strong)}
+.tb-main h1{
+  font-size:clamp(1.6rem,4.4vw,2.6rem);font-weight:700;letter-spacing:-.02em;
+  margin:0 0 .35rem;line-height:1.14;
+}
+.tb-main p{margin:0;color:var(--ink-2);max-width:62ch}
+.tb-meta{display:grid;grid-template-columns:repeat(2,1fr);}
+.tb-meta div{padding:.7rem 1.4rem;border-top:1px solid var(--rule)}
+.tb-meta div:nth-child(even){border-left:1px solid var(--rule)}
+.tb-meta span{display:block;font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-3);letter-spacing:.04em}
+.tb-meta strong{font-weight:600;font-size:.94rem}
+@media(min-width:720px){ .tb-meta{grid-template-columns:repeat(4,1fr)} .tb-meta div:nth-child(even){border-left:none} .tb-meta div+div{border-left:1px solid var(--rule)} }
+.tb-space{height:2.4rem}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 1.25rem 5rem;display:block}
+@media(min-width:1000px){
+  .wrap{display:grid;grid-template-columns:232px minmax(0,1fr);gap:3rem;padding-top:2.6rem}
+}
+nav.toc{display:none}
+@media(min-width:1000px){
+  nav.toc{
+    display:block;position:sticky;align-self:start;
+    top:calc(env(safe-area-inset-top,0px) + 1.5rem);
+    max-height:80vh;overflow-y:auto;font-size:.86rem;
+    border-left:1.5px solid var(--rule);padding-left:1rem;
+  }
+  nav.toc a{display:block;padding:.2rem 0;color:var(--ink-2);text-decoration:none;line-height:1.35}
+  nav.toc a:hover{color:var(--accent)}
+  nav.toc a .n{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);margin-right:.45rem;font-size:.78rem}
+}
+main{min-width:0;padding-top:2.2rem}
+@media(min-width:1000px){main{padding-top:0}}
+
+section{margin:0 0 3.4rem;scroll-margin-top:1.5rem}
+h2{
+  font-size:clamp(1.25rem,3vw,1.62rem);font-weight:600;letter-spacing:-.015em;
+  margin:0 0 1rem;padding-bottom:.5rem;border-bottom:1.5px solid var(--rule);
+  display:flex;gap:.7rem;align-items:baseline;
+}
+h2 .n{font-family:"IBM Plex Mono",monospace;font-size:.85rem;color:var(--accent);font-weight:500}
+h3{font-size:1.06rem;font-weight:600;margin:2rem 0 .6rem;letter-spacing:-.01em}
+h4{font-size:.95rem;font-weight:600;margin:1.4rem 0 .4rem}
+p{margin:0 0 .95rem;max-width:74ch}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem;max-width:74ch}
+li{margin:.3rem 0}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.86em;background:var(--accent-soft);color:var(--ink);padding:.1em .38em;border-radius:3px}
+a{color:var(--accent)}
+
+.lead{font-size:1.05rem;color:var(--ink-2);max-width:70ch}
+
+/* callouts */
+.note{
+  border-left:4px solid var(--dg-blue-s);background:var(--card);
+  padding:.85rem 1.1rem;margin:1.2rem 0;border-radius:0 6px 6px 0;max-width:74ch;
+}
+.note.warn{border-left-color:var(--dg-red-s)}
+.note.ok{border-left-color:var(--dg-green-s)}
+.note.rule{border-left-color:var(--dg-amber-s)}
+.note p:last-child{margin-bottom:0}
+.note b{display:block;font-size:.8rem;font-family:"IBM Plex Mono",monospace;letter-spacing:.04em;color:var(--ink-3);margin-bottom:.25rem}
+
+/* figures */
+figure{margin:1.6rem 0 1.8rem;background:var(--dg-figbg);border:1.5px solid var(--rule);border-radius:10px;overflow:hidden}
+figure .scroll{overflow-x:auto;padding:1.1rem}
+figure svg{display:block;width:100%;height:auto;min-width:560px;max-width:100%}
+figcaption{
+  border-top:1px solid var(--rule);padding:.6rem 1.1rem;color:var(--ink-2);
+  font-size:.84rem;background:var(--card);
+}
+figcaption b{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-weight:500;margin-right:.5rem;font-size:.78rem}
+
+/* svg shared */
+svg .lbl{font-family:"IBM Plex Sans",sans-serif;font-size:13px;font-weight:600;fill:var(--dg-ink)}
+svg .sub{font-family:"IBM Plex Sans",sans-serif;font-size:11px;fill:var(--dg-ink);opacity:.82}
+svg .tiny{font-family:"IBM Plex Mono",monospace;font-size:10px;fill:var(--dg-line)}
+svg .edge{stroke:var(--dg-line);stroke-width:1.6;fill:none}
+svg .edge-d{stroke:var(--dg-line);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+svg .ttl{font-family:"IBM Plex Sans",sans-serif;font-size:12px;font-weight:700;fill:var(--dg-ink);opacity:.72;letter-spacing:.03em}
+svg .bx rect,svg .bx path,svg .bx polygon,svg .bx ellipse{stroke-width:1.6}
+svg .blue rect,svg .blue polygon,svg .blue ellipse{fill:var(--dg-blue-f);stroke:var(--dg-blue-s)}
+svg .green rect,svg .green polygon,svg .green ellipse{fill:var(--dg-green-f);stroke:var(--dg-green-s)}
+svg .amber rect,svg .amber polygon,svg .amber ellipse{fill:var(--dg-amber-f);stroke:var(--dg-amber-s)}
+svg .purple rect,svg .purple polygon,svg .purple ellipse{fill:var(--dg-purple-f);stroke:var(--dg-purple-s)}
+svg .red rect,svg .red polygon,svg .red ellipse{fill:var(--dg-red-f);stroke:var(--dg-red-s)}
+svg .teal rect,svg .teal polygon,svg .teal ellipse{fill:var(--dg-teal-f);stroke:var(--dg-teal-s)}
+svg .gray rect,svg .gray polygon,svg .gray ellipse{fill:var(--dg-gray-f);stroke:var(--dg-gray-s)}
+svg .band{fill:none;stroke:var(--rule-strong);stroke-width:1.2;stroke-dasharray:4 4}
+
+/* code */
+pre{
+  background:var(--code-bg);color:var(--code-ink);
+  padding:1rem 1.1rem;border-radius:8px;overflow-x:auto;
+  font-family:"IBM Plex Mono",monospace;font-size:.82rem;line-height:1.6;
+  margin:1rem 0 1.4rem;border:1px solid #1E2A36;
+}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+.k{color:var(--code-key)} .s{color:var(--code-str)} .c{color:var(--code-com)}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:1rem 0 1.5rem;border:1px solid var(--rule);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:.88rem}
+th,td{text-align:left;padding:.55rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top}
+th{background:var(--accent-soft);font-weight:600;font-size:.8rem;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+td code{font-size:.82em}
+
+/* tree */
+.tree{font-family:"IBM Plex Mono",monospace;font-size:.82rem;line-height:1.75;background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:1rem 1.1rem;overflow-x:auto;margin:1rem 0 1.5rem;white-space:pre;color:var(--ink-2)}
+.tree b{color:var(--ink);font-weight:600}
+footer{border-top:1.5px solid var(--rule);margin-top:1rem;padding:1.5rem 0;color:var(--ink-3);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<header class="titleblock">
+  <div class="inner">
+    <div class="tb-grid">
+      <div class="tb-main">
+        <h1>College AC Management System</h1>
+        <p>Backend design document. How CSV uploads become trustworthy database records — parsing, validation, staging, reconciliation, and reporting — without ever destroying data that is already there.</p>
+      </div>
+      <div class="tb-meta">
+        <div><span>Database</span><strong>PostgreSQL 14+</strong></div>
+        <div><span>Pattern</span><strong>Stage &amp; reconcile</strong></div>
+        <div><span>Entities</span><strong>7 core + 2 staging</strong></div>
+        <div><span>Revision</span><strong>1.0</strong></div>
+      </div>
+    </div>
+    <div class="tb-space"></div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <a href="#s1"><span class="n">01</span>What this system does</a>
+  <a href="#s2"><span class="n">02</span>System architecture</a>
+  <a href="#s3"><span class="n">03</span>Data model</a>
+  <a href="#s4"><span class="n">04</span>Core schema SQL</a>
+  <a href="#s5"><span class="n">05</span>Staging tables</a>
+  <a href="#s6"><span class="n">06</span>The import pipeline</a>
+  <a href="#s7"><span class="n">07</span>Stage by stage</a>
+  <a href="#s8"><span class="n">08</span>Reconciliation logic</a>
+  <a href="#s9"><span class="n">09</span>Missing fields</a>
+  <a href="#s10"><span class="n">10</span>Re-uploading a file</a>
+  <a href="#s11"><span class="n">11</span>Deletion policy</a>
+  <a href="#s12"><span class="n">12</span>Request sequence</a>
+  <a href="#s13"><span class="n">13</span>API reference</a>
+  <a href="#s14"><span class="n">14</span>Validation rules</a>
+  <a href="#s15"><span class="n">15</span>Transactions</a>
+  <a href="#s16"><span class="n">16</span>Project structure</a>
+  <a href="#s17"><span class="n">17</span>Audit &amp; reporting</a>
+  <a href="#s18"><span class="n">18</span>Test checklist</a>
+</nav>
+
+<main>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+  <h2><span class="n">01</span> What this system does</h2>
+  <p class="lead">A college owns hundreds of air conditioners spread across blocks, floors, departments and rooms. Management tracks them in spreadsheets. The backend's job is to turn those spreadsheets into one reliable database — and to keep doing that every time a new spreadsheet arrives, for years.</p>
+
+  <p>The hard part is not the first upload. It is the fifth one. Someone uploads 370 ACs in January, 100 more in March, then accidentally uploads the March file again in April, then in June uploads a file that only has two columns because they only wanted to change the status of a few units.</p>
+
+  <p>A naive importer breaks on every one of those. This design handles all of them through a single rule set:</p>
+
+  <ul>
+    <li><strong>Never replace, always merge.</strong> An upload adds to and corrects the database. It does not define it.</li>
+    <li><strong>Identity decides everything.</strong> <code>ac_id</code> tells the system whether a row is new or known.</li>
+    <li><strong>Absent is not empty.</strong> A column missing from the CSV means "no opinion", not "set to null".</li>
+    <li><strong>Nothing changes until it is checked.</strong> Rows land in staging first and are only committed after validation passes.</li>
+    <li><strong>Every import is explainable.</strong> The admin sees exactly what was inserted, updated, skipped and rejected.</li>
+  </ul>
+
+  <div class="note ok">
+    <b>Core principle</b>
+    <p>PostgreSQL is the permanent source of truth. CSV and Excel files are import sources, kept afterwards only as archived evidence of what was submitted and by whom.</p>
+  </div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+  <h2><span class="n">02</span> System architecture</h2>
+  <p>Four layers, each with one responsibility. The service layer is where all the intelligence lives; the API layer only translates HTTP into service calls, and the data layer only stores.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Four-layer backend architecture diagram">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+
+        <!-- layer 1 -->
+        <text class="ttl" x="30" y="30">PRESENTATION</text>
+        <g class="bx blue"><rect x="30" y="42" width="360" height="62" rx="8"/></g>
+        <text class="lbl" x="50" y="70">Admin dashboard</text>
+        <text class="sub" x="50" y="89">Upload CSV · review preview · confirm · view reports</text>
+        <g class="bx gray"><rect x="410" y="42" width="220" height="62" rx="8"/></g>
+        <text class="lbl" x="430" y="70">Auth (JWT)</text>
+        <text class="sub" x="430" y="89">admin / viewer roles</text>
+
+        <path class="edge" d="M210 104 L210 140" marker-end="url(#ar)"/>
+        <text class="tiny" x="220" y="128">HTTPS · multipart</text>
+
+        <!-- layer 2 -->
+        <text class="ttl" x="30" y="162">API LAYER — Express / FastAPI</text>
+        <g class="bx green"><rect x="30" y="174" width="840" height="78" rx="8"/></g>
+        <g class="bx green"><rect x="48" y="192" width="185" height="44" rx="6"/></g>
+        <text class="lbl" x="62" y="212">Upload routes</text><text class="sub" x="62" y="228">POST /imports</text>
+        <g class="bx green"><rect x="253" y="192" width="185" height="44" rx="6"/></g>
+        <text class="lbl" x="267" y="212">Import routes</text><text class="sub" x="267" y="228">preview · commit</text>
+        <g class="bx green"><rect x="458" y="192" width="185" height="44" rx="6"/></g>
+        <text class="lbl" x="472" y="212">Asset routes</text><text class="sub" x="472" y="228">CRUD · search</text>
+        <g class="bx green"><rect x="663" y="192" width="189" height="44" rx="6"/></g>
+        <text class="lbl" x="677" y="212">Report routes</text><text class="sub" x="677" y="228">dashboard · export</text>
+
+        <path class="edge" d="M450 252 L450 292" marker-end="url(#ar)"/>
+
+        <!-- layer 3 -->
+        <text class="ttl" x="30" y="314">SERVICE LAYER — all business rules</text>
+        <g class="bx amber"><rect x="30" y="326" width="840" height="108" rx="8"/></g>
+        <g class="bx amber"><rect x="48" y="346" width="152" height="70" rx="6"/></g>
+        <text class="lbl" x="62" y="372">Parser</text><text class="sub" x="62" y="390">CSV / XLSX →</text><text class="sub" x="62" y="404">rows + header map</text>
+        <g class="bx amber"><rect x="216" y="346" width="152" height="70" rx="6"/></g>
+        <text class="lbl" x="230" y="372">Validator</text><text class="sub" x="230" y="390">types · ranges ·</text><text class="sub" x="230" y="404">duplicates · FKs</text>
+        <g class="bx amber"><rect x="384" y="346" width="152" height="70" rx="6"/></g>
+        <text class="lbl" x="398" y="372">Reconciler</text><text class="sub" x="398" y="390">classify rows as</text><text class="sub" x="398" y="404">insert / update / skip</text>
+        <g class="bx amber"><rect x="552" y="346" width="152" height="70" rx="6"/></g>
+        <text class="lbl" x="566" y="372">Committer</text><text class="sub" x="566" y="390">one transaction</text><text class="sub" x="566" y="404">partial-field UPDATE</text>
+        <g class="bx amber"><rect x="720" y="346" width="132" height="70" rx="6"/></g>
+        <text class="lbl" x="734" y="372">Reporter</text><text class="sub" x="734" y="390">counts · errors</text><text class="sub" x="734" y="404">audit entry</text>
+
+        <path class="edge" d="M330 434 L330 486" marker-end="url(#ar)"/>
+        <path class="edge" d="M640 434 L640 486" marker-end="url(#ar)"/>
+
+        <!-- layer 4 -->
+        <text class="ttl" x="30" y="508">PERSISTENCE</text>
+        <g class="bx purple"><rect x="30" y="520" width="250" height="62" rx="8"/></g>
+        <text class="lbl" x="50" y="546">Staging tables</text>
+        <text class="sub" x="50" y="565">staging_imports · _rows (JSONB)</text>
+        <g class="bx purple"><rect x="300" y="520" width="250" height="62" rx="8"/></g>
+        <text class="lbl" x="320" y="546">Core tables</text>
+        <text class="sub" x="320" y="565">colleges → … → maintenance</text>
+        <g class="bx teal"><rect x="570" y="520" width="282" height="62" rx="8"/></g>
+        <text class="lbl" x="590" y="546">File archive</text>
+        <text class="sub" x="590" y="565">original uploads, read-only, hashed</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 2.1</b> Layered architecture. Every HTTP route is thin; the five services carry the import logic.</figcaption>
+  </figure>
+
+  <h3>Technology choices</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Concern</th><th>Choice</th><th>Why</th></tr>
+    <tr><td>Database</td><td>PostgreSQL 14+</td><td>Strong constraints, <code>ON CONFLICT</code> upserts, JSONB for staging rows, real transactions.</td></tr>
+    <tr><td>Runtime</td><td>Node.js + Express, or Python + FastAPI</td><td>Either works. Examples below use Node with <code>pg</code>; the SQL is identical in Python.</td></tr>
+    <tr><td>CSV parsing</td><td><code>csv-parse</code> / <code>pandas</code></td><td>Streaming, quoted-field safe, does not load 10 000 rows into memory at once.</td></tr>
+    <tr><td>Excel parsing</td><td><code>SheetJS</code> / <code>openpyxl</code></td><td>Management will send <code>.xlsx</code> eventually. Normalise it to the same row shape as CSV.</td></tr>
+    <tr><td>File storage</td><td>Local disk or S3-compatible bucket</td><td>Originals are kept for audit; the database stores only the path and SHA-256 hash.</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+  <h2><span class="n">03</span> Data model</h2>
+  <p>The physical hierarchy of the campus is modelled directly. Each level owns the one below it, so any AC can be traced back to its room, floor, block and college with joins alone.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Entity hierarchy from colleges down to maintenance records">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+
+        <g class="bx blue"><rect x="40" y="30" width="190" height="58" rx="8"/></g>
+        <text class="lbl" x="58" y="55">COLLEGES</text>
+        <text class="sub" x="58" y="74">college_id (SERIAL, PK)</text>
+
+        <g class="bx green"><rect x="300" y="30" width="190" height="58" rx="8"/></g>
+        <text class="lbl" x="318" y="55">BLOCKS</text>
+        <text class="sub" x="318" y="74">block_id (PK) · college_id</text>
+
+        <g class="bx amber"><rect x="560" y="30" width="190" height="58" rx="8"/></g>
+        <text class="lbl" x="578" y="55">FLOORS</text>
+        <text class="sub" x="578" y="74">floor_id (PK) · block_id</text>
+
+        <path class="edge" d="M230 59 L296 59" marker-end="url(#ar2)"/>
+        <text class="tiny" x="243" y="50">1 ─── N</text>
+        <path class="edge" d="M490 59 L556 59" marker-end="url(#ar2)"/>
+        <text class="tiny" x="503" y="50">1 ─── N</text>
+
+        <!-- floors branch down -->
+        <path class="edge" d="M655 88 L655 118 L300 118 L300 148" marker-end="url(#ar2)"/>
+        <path class="edge" d="M655 88 L655 148" marker-end="url(#ar2)"/>
+        <text class="tiny" x="310" y="112">has many departments</text>
+        <text class="tiny" x="668" y="112">has many rooms</text>
+
+        <g class="bx purple"><rect x="205" y="150" width="190" height="58" rx="8"/></g>
+        <text class="lbl" x="223" y="175">DEPARTMENTS</text>
+        <text class="sub" x="223" y="194">department_id (PK) · floor_id</text>
+
+        <g class="bx red"><rect x="560" y="150" width="190" height="76" rx="8"/></g>
+        <text class="lbl" x="578" y="175">ROOMS</text>
+        <text class="sub" x="578" y="194">room_id (PK) · floor_id</text>
+        <text class="sub" x="578" y="212">department_id (nullable FK)</text>
+
+        <path class="edge-d" d="M395 179 L520 179 L520 188 L556 188" marker-end="url(#ar2)"/>
+        <text class="tiny" x="405" y="171">0..1 department per room</text>
+
+        <g class="bx blue"><rect x="300" y="268" width="230" height="94" rx="8"/></g>
+        <text class="lbl" x="318" y="293">ACS</text>
+        <text class="sub" x="318" y="312">ac_id (PK, business key)</text>
+        <text class="sub" x="318" y="330">ac_serial_number (UNIQUE)</text>
+        <text class="sub" x="318" y="348">room_id · 11 attribute columns</text>
+
+        <path class="edge" d="M640 226 L640 248 L415 248 L415 264" marker-end="url(#ar2)"/>
+        <text class="tiny" x="425" y="242">a room has many ACs</text>
+
+        <g class="bx teal"><rect x="620" y="268" width="230" height="94" rx="8"/></g>
+        <text class="lbl" x="638" y="293">MAINTENANCE</text>
+        <text class="sub" x="638" y="312">maintenance_id (SERIAL, PK)</text>
+        <text class="sub" x="638" y="330">ac_id · maintenance_type</text>
+        <text class="sub" x="638" y="348">maintenance_date</text>
+
+        <path class="edge" d="M530 315 L616 315" marker-end="url(#ar2)"/>
+        <text class="tiny" x="537" y="306">1 ─── N history</text>
+
+        <rect class="band" x="30" y="390" width="820" height="62" rx="8"/>
+        <text class="ttl" x="48" y="412">WHY MAINTENANCE IS A SEPARATE TABLE</text>
+        <text class="sub" x="48" y="434">last_maintenance_* columns keep only one event. A child table keeps the whole service history, and "latest" is one ORDER BY away.</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 3.1</b> Entity relationships. Dashed line marks the optional link — a room may exist without a department.</figcaption>
+  </figure>
+
+  <h3>Key design decisions</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Decision</th><th>Reasoning</th></tr>
+    <tr><td><code>ac_id</code> is a VARCHAR business key, not a serial</td><td>Management already writes <code>AC-001</code> on the unit and in the sheet. Matching on the same string they use is what makes reconciliation possible at all.</td></tr>
+    <tr><td><code>ac_serial_number</code> is UNIQUE</td><td>A second identity check. Catches the case where the same physical unit is entered twice under two different IDs.</td></tr>
+    <tr><td><code>department_id</code> on rooms is nullable</td><td>Corridors, auditoriums and common areas have ACs but belong to no department.</td></tr>
+    <tr><td><code>number_of_acs</code> is optional</td><td>It is a cached count. The true value is always <code>SELECT COUNT(*) FROM acs WHERE room_id = ?</code>. Refresh it with a trigger or drop it.</td></tr>
+    <tr><td><code>ON DELETE RESTRICT</code> everywhere</td><td>Deleting a block should never silently take 80 ACs with it. The database refuses; the admin must deal with children explicitly.</td></tr>
+    <tr><td>Maintenance in its own table</td><td>Full service history per AC, which is what a maintenance system is actually for.</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+  <h2><span class="n">04</span> Core schema SQL</h2>
+  <p>Create the tables in this order — each depends on the one before it. A few additions to the original script are marked in comments.</p>
+
+<pre><code><span class="c">-- =====================================================
+-- 1. COLLEGES
+-- =====================================================</span>
+<span class="k">CREATE TABLE</span> colleges (
+    college_id   SERIAL <span class="k">PRIMARY KEY</span>,
+    college_name VARCHAR(255) <span class="k">NOT NULL</span>,
+    created_at   TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at   TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- 2. BLOCKS</span>
+<span class="k">CREATE TABLE</span> blocks (
+    block_id   VARCHAR(50) <span class="k">PRIMARY KEY</span>,
+    college_id INT <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> colleges(college_id)
+               <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    block_name VARCHAR(255) <span class="k">NOT NULL</span>,
+    created_at TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- 3. FLOORS</span>
+<span class="k">CREATE TABLE</span> floors (
+    floor_id   VARCHAR(50) <span class="k">PRIMARY KEY</span>,
+    block_id   VARCHAR(50) <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> blocks(block_id)
+               <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    floor_name VARCHAR(100) <span class="k">NOT NULL</span>,
+    created_at TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- 4. DEPARTMENTS</span>
+<span class="k">CREATE TABLE</span> departments (
+    department_id   VARCHAR(50) <span class="k">PRIMARY KEY</span>,
+    floor_id        VARCHAR(50) <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> floors(floor_id)
+                    <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    department_name VARCHAR(255) <span class="k">NOT NULL</span>,
+    created_at      TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at      TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- 5. ROOMS</span>
+<span class="k">CREATE TABLE</span> rooms (
+    room_id       VARCHAR(50) <span class="k">PRIMARY KEY</span>,
+    floor_id      VARCHAR(50) <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> floors(floor_id)
+                  <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    department_id VARCHAR(50) <span class="k">REFERENCES</span> departments(department_id)
+                  <span class="k">ON UPDATE CASCADE ON DELETE SET NULL</span>,
+    room_name     VARCHAR(255) <span class="k">NOT NULL</span>,
+    room_type     VARCHAR(100),
+    number_of_acs INT <span class="k">DEFAULT</span> 0 <span class="k">CHECK</span> (number_of_acs &gt;= 0),
+    created_at    TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at    TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- 6. ACS  (the table the CSV import writes to)</span>
+<span class="k">CREATE TABLE</span> acs (
+    ac_id              VARCHAR(50) <span class="k">PRIMARY KEY</span>,
+    room_id            VARCHAR(50) <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> rooms(room_id)
+                       <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    ac_make_company    VARCHAR(255),
+    ac_model_number    VARCHAR(100),
+    ac_serial_number   VARCHAR(100) <span class="k">UNIQUE</span>,
+    ac_capacity_ton    DECIMAL(4,2) <span class="k">CHECK</span> (ac_capacity_ton <span class="k">IS NULL</span> <span class="k">OR</span> ac_capacity_ton &gt; 0),
+    ac_type            VARCHAR(50),
+    manufacturing_year INT <span class="k">CHECK</span> (manufacturing_year <span class="k">IS NULL</span> <span class="k">OR</span> manufacturing_year <span class="k">BETWEEN</span> 1900 <span class="k">AND</span> 2100),
+    installation_year  INT <span class="k">CHECK</span> (installation_year  <span class="k">IS NULL</span> <span class="k">OR</span> installation_year  <span class="k">BETWEEN</span> 1900 <span class="k">AND</span> 2100),
+    current_status     VARCHAR(50) <span class="k">DEFAULT</span> <span class="s">'Active'</span>,
+    ac_star_rating     INT <span class="k">CHECK</span> (ac_star_rating <span class="k">IS NULL</span> <span class="k">OR</span> ac_star_rating <span class="k">BETWEEN</span> 1 <span class="k">AND</span> 5),
+    power_rating_kw    DECIMAL(5,2) <span class="k">CHECK</span> (power_rating_kw <span class="k">IS NULL</span> <span class="k">OR</span> power_rating_kw &gt;= 0),
+    power_factor       DECIMAL(4,2) <span class="k">CHECK</span> (power_factor <span class="k">IS NULL</span> <span class="k">OR</span> power_factor <span class="k">BETWEEN</span> 0 <span class="k">AND</span> 1),
+
+    <span class="c">-- ADDED: soft removal instead of DELETE (see section 11)</span>
+    is_active          BOOLEAN <span class="k">NOT NULL</span> <span class="k">DEFAULT</span> TRUE,
+    decommissioned_at  TIMESTAMPTZ,
+
+    created_at         TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    updated_at         TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+
+    <span class="c">-- ADDED: install year cannot precede manufacture year</span>
+    <span class="k">CONSTRAINT</span> chk_year_order <span class="k">CHECK</span> (
+        manufacturing_year <span class="k">IS NULL</span> <span class="k">OR</span> installation_year <span class="k">IS NULL</span>
+        <span class="k">OR</span> installation_year &gt;= manufacturing_year
+    )
+);
+
+<span class="c">-- 7. MAINTENANCE</span>
+<span class="k">CREATE TABLE</span> maintenance (
+    maintenance_id   SERIAL <span class="k">PRIMARY KEY</span>,
+    ac_id            VARCHAR(50) <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> acs(ac_id)
+                     <span class="k">ON UPDATE CASCADE ON DELETE RESTRICT</span>,
+    maintenance_type VARCHAR(100) <span class="k">NOT NULL</span>,
+    maintenance_date DATE <span class="k">NOT NULL</span>,
+    remarks          TEXT,
+    created_at       TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="c">-- =====================================================
+-- INDEXES
+-- =====================================================</span>
+<span class="k">CREATE INDEX</span> idx_blocks_college      <span class="k">ON</span> blocks(college_id);
+<span class="k">CREATE INDEX</span> idx_floors_block        <span class="k">ON</span> floors(block_id);
+<span class="k">CREATE INDEX</span> idx_departments_floor   <span class="k">ON</span> departments(floor_id);
+<span class="k">CREATE INDEX</span> idx_rooms_floor         <span class="k">ON</span> rooms(floor_id);
+<span class="k">CREATE INDEX</span> idx_rooms_department    <span class="k">ON</span> rooms(department_id);
+<span class="k">CREATE INDEX</span> idx_acs_room            <span class="k">ON</span> acs(room_id);
+<span class="k">CREATE INDEX</span> idx_acs_status          <span class="k">ON</span> acs(current_status);
+<span class="k">CREATE INDEX</span> idx_maintenance_ac      <span class="k">ON</span> maintenance(ac_id);
+<span class="k">CREATE INDEX</span> idx_maintenance_date    <span class="k">ON</span> maintenance(maintenance_date <span class="k">DESC</span>);
+
+<span class="c">-- keep updated_at honest</span>
+<span class="k">CREATE OR REPLACE FUNCTION</span> touch_updated_at() <span class="k">RETURNS</span> trigger <span class="k">AS</span> $$
+<span class="k">BEGIN</span>
+    NEW.updated_at := now();
+    <span class="k">RETURN</span> NEW;
+<span class="k">END</span>; $$ <span class="k">LANGUAGE</span> plpgsql;
+
+<span class="k">CREATE TRIGGER</span> trg_acs_touch <span class="k">BEFORE UPDATE ON</span> acs
+<span class="k">FOR EACH ROW EXECUTE FUNCTION</span> touch_updated_at();</code></pre>
+
+  <div class="note">
+    <b>On TIMESTAMPTZ</b>
+    <p>Plain <code>TIMESTAMP</code> loses the time zone, which becomes a problem the moment the server and the college are configured differently. <code>TIMESTAMPTZ</code> costs nothing extra and stores an unambiguous instant.</p>
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+  <h2><span class="n">05</span> Staging tables</h2>
+  <p>Staging is the buffer between an uploaded file and the real database. Every row of every upload lands here first, keeps its original line number, and carries its own validation verdict. Nothing touches <code>acs</code> until the whole file has been judged.</p>
+
+  <p>The important trick is <code>raw_data JSONB</code>. Storing the row as a JSON object preserves exactly which keys the CSV supplied — which is the only way to distinguish "the column was absent" from "the value was blank". A fixed set of staging columns would erase that difference immediately.</p>
+
+<pre><code><span class="c">-- one row per uploaded file</span>
+<span class="k">CREATE TABLE</span> staging_imports (
+    import_id       SERIAL <span class="k">PRIMARY KEY</span>,
+    file_name       VARCHAR(255) <span class="k">NOT NULL</span>,
+    file_path       TEXT         <span class="k">NOT NULL</span>,   <span class="c">-- archived original</span>
+    file_hash       CHAR(64)     <span class="k">NOT NULL</span>,   <span class="c">-- SHA-256, detects re-uploads</span>
+    target_entity   VARCHAR(50)  <span class="k">NOT NULL</span>,   <span class="c">-- 'acs' | 'rooms' | 'maintenance'</span>
+    detected_columns TEXT[]      <span class="k">NOT NULL</span>,   <span class="c">-- header row, normalised</span>
+
+    total_rows      INT <span class="k">DEFAULT</span> 0,
+    valid_rows      INT <span class="k">DEFAULT</span> 0,
+    invalid_rows    INT <span class="k">DEFAULT</span> 0,
+    inserted_rows   INT <span class="k">DEFAULT</span> 0,
+    updated_rows    INT <span class="k">DEFAULT</span> 0,
+    unchanged_rows  INT <span class="k">DEFAULT</span> 0,
+    duplicate_rows  INT <span class="k">DEFAULT</span> 0,
+
+    clear_empty_fields BOOLEAN <span class="k">NOT NULL</span> <span class="k">DEFAULT</span> FALSE,  <span class="c">-- import option</span>
+    allow_insert       BOOLEAN <span class="k">NOT NULL</span> <span class="k">DEFAULT</span> TRUE,
+    allow_update       BOOLEAN <span class="k">NOT NULL</span> <span class="k">DEFAULT</span> TRUE,
+
+    status          VARCHAR(20) <span class="k">NOT NULL</span> <span class="k">DEFAULT</span> <span class="s">'uploaded'</span>,
+    <span class="c">-- uploaded → parsed → validated → previewed → committed | failed | cancelled</span>
+
+    uploaded_by     INT,
+    uploaded_at     TIMESTAMPTZ <span class="k">DEFAULT</span> now(),
+    committed_at    TIMESTAMPTZ,
+    error_message   TEXT
+);
+
+<span class="c">-- one row per CSV line</span>
+<span class="k">CREATE TABLE</span> staging_import_rows (
+    row_id        BIGSERIAL <span class="k">PRIMARY KEY</span>,
+    import_id     INT <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> staging_imports(import_id) <span class="k">ON DELETE CASCADE</span>,
+    line_number   INT <span class="k">NOT NULL</span>,          <span class="c">-- CSV line, for error messages</span>
+    business_key  VARCHAR(100),               <span class="c">-- ac_id extracted from the row</span>
+    raw_data      JSONB <span class="k">NOT NULL</span>,        <span class="c">-- ONLY the keys the CSV supplied</span>
+
+    action        VARCHAR(20),                <span class="c">-- insert | update | unchanged | duplicate | reject</span>
+    changed_fields TEXT[],                    <span class="c">-- what an update would actually change</span>
+    errors        JSONB <span class="k">DEFAULT</span> <span class="s">'[]'</span>::jsonb,
+    created_at    TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="k">CREATE INDEX</span> idx_srows_import <span class="k">ON</span> staging_import_rows(import_id);
+<span class="k">CREATE INDEX</span> idx_srows_key    <span class="k">ON</span> staging_import_rows(business_key);
+<span class="k">CREATE INDEX</span> idx_srows_action <span class="k">ON</span> staging_import_rows(import_id, action);
+<span class="k">CREATE UNIQUE INDEX</span> idx_imports_hash <span class="k">ON</span> staging_imports(file_hash)
+    <span class="k">WHERE</span> status = <span class="s">'committed'</span>;   <span class="c">-- flag identical re-uploads</span></code></pre>
+
+  <div class="note rule">
+    <b>Why not a typed staging table</b>
+    <p>If staging had a fixed <code>power_factor DECIMAL</code> column, an absent CSV column and an empty CSV cell would both arrive as <code>NULL</code>. The distinction would be gone before reconciliation ever ran. JSONB keeps the shape of what was actually submitted.</p>
+  </div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+  <h2><span class="n">06</span> The import pipeline</h2>
+  <p>This is the heart of the backend. An upload passes through seven stages and can only fail forward into a report — never into a half-written database.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 1080" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CSV import pipeline flowchart from upload to committed database">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+
+        <!-- 1 upload -->
+        <g class="bx blue"><rect x="320" y="20" width="260" height="54" rx="8"/></g>
+        <text class="lbl" x="340" y="44">1 · Admin uploads file</text>
+        <text class="sub" x="340" y="62">CSV or XLSX · multipart POST</text>
+        <path class="edge" d="M450 74 L450 106" marker-end="url(#ar3)"/>
+
+        <!-- 2 archive -->
+        <g class="bx teal"><rect x="320" y="108" width="260" height="54" rx="8"/></g>
+        <text class="lbl" x="340" y="132">2 · Archive + hash</text>
+        <text class="sub" x="340" y="150">store original, compute SHA-256</text>
+        <path class="edge" d="M450 162 L450 194" marker-end="url(#ar3)"/>
+
+        <!-- 3 parse -->
+        <g class="bx amber"><rect x="320" y="196" width="260" height="70" rx="8"/></g>
+        <text class="lbl" x="340" y="220">3 · Parse</text>
+        <text class="sub" x="340" y="238">normalise header → column map</text>
+        <text class="sub" x="340" y="254">stream rows, keep line numbers</text>
+
+        <!-- header decision -->
+        <path class="edge" d="M450 266 L450 296" marker-end="url(#ar3)"/>
+        <g class="bx gray"><polygon points="450,298 630,348 450,398 270,348"/></g>
+        <text class="lbl" x="382" y="344">Header recognised?</text>
+        <text class="sub" x="366" y="362">ac_id column present</text>
+
+        <g class="bx red"><rect x="672" y="320" width="196" height="56" rx="8"/></g>
+        <text class="lbl" x="690" y="344">Reject whole file</text>
+        <text class="sub" x="690" y="362">unknown / missing columns</text>
+        <path class="edge" d="M630 348 L668 348" marker-end="url(#ar3)"/>
+        <text class="tiny" x="636" y="340">no</text>
+
+        <path class="edge" d="M450 398 L450 428" marker-end="url(#ar3)"/>
+        <text class="tiny" x="458" y="418">yes</text>
+
+        <!-- 4 staging -->
+        <g class="bx purple"><rect x="300" y="430" width="300" height="70" rx="8"/></g>
+        <text class="lbl" x="320" y="454">4 · Load into staging</text>
+        <text class="sub" x="320" y="472">one JSONB row per CSV line</text>
+        <text class="sub" x="320" y="488">database still untouched</text>
+        <path class="edge" d="M450 500 L450 532" marker-end="url(#ar3)"/>
+
+        <!-- 5 validate -->
+        <g class="bx amber"><rect x="300" y="534" width="300" height="86" rx="8"/></g>
+        <text class="lbl" x="320" y="558">5 · Validate every row</text>
+        <text class="sub" x="320" y="576">types · ranges · required fields</text>
+        <text class="sub" x="320" y="592">room_id exists · serial not stolen</text>
+        <text class="sub" x="320" y="608">duplicate ac_id inside the file</text>
+
+        <g class="bx red"><rect x="660" y="540" width="208" height="74" rx="8"/></g>
+        <text class="lbl" x="678" y="564">Row marked reject</text>
+        <text class="sub" x="678" y="582">error stored with line no.</text>
+        <text class="sub" x="678" y="598">good rows continue</text>
+        <path class="edge-d" d="M600 577 L656 577" marker-end="url(#ar3)"/>
+
+        <path class="edge" d="M450 620 L450 652" marker-end="url(#ar3)"/>
+
+        <!-- 6 reconcile -->
+        <g class="bx green"><rect x="300" y="654" width="300" height="60" rx="8"/></g>
+        <text class="lbl" x="320" y="678">6 · Reconcile against acs</text>
+        <text class="sub" x="320" y="696">look up each ac_id, classify the row</text>
+
+        <path class="edge" d="M450 714 L450 736"/>
+        <path class="edge" d="M150 736 L750 736"/>
+        <path class="edge" d="M150 736 L150 766" marker-end="url(#ar3)"/>
+        <path class="edge" d="M350 736 L350 766" marker-end="url(#ar3)"/>
+        <path class="edge" d="M550 736 L550 766" marker-end="url(#ar3)"/>
+        <path class="edge" d="M750 736 L750 766" marker-end="url(#ar3)"/>
+
+        <g class="bx green"><rect x="70" y="768" width="160" height="58" rx="8"/></g>
+        <text class="lbl" x="88" y="792">INSERT</text>
+        <text class="sub" x="88" y="810">ac_id not in database</text>
+
+        <g class="bx blue"><rect x="270" y="768" width="160" height="58" rx="8"/></g>
+        <text class="lbl" x="288" y="792">UPDATE</text>
+        <text class="sub" x="288" y="810">exists, values differ</text>
+
+        <g class="bx gray"><rect x="470" y="768" width="160" height="58" rx="8"/></g>
+        <text class="lbl" x="488" y="792">UNCHANGED</text>
+        <text class="sub" x="488" y="810">exists, identical</text>
+
+        <g class="bx red"><rect x="670" y="768" width="180" height="58" rx="8"/></g>
+        <text class="lbl" x="688" y="792">DUPLICATE / REJECT</text>
+        <text class="sub" x="688" y="810">repeated or invalid</text>
+
+        <path class="edge" d="M150 826 L150 852 L450 852 L450 876" marker-end="url(#ar3)"/>
+        <path class="edge" d="M350 826 L350 852"/>
+        <path class="edge" d="M550 826 L550 852"/>
+        <path class="edge" d="M760 826 L760 852 L450 852"/>
+
+        <!-- 7 preview -->
+        <g class="bx amber"><rect x="300" y="878" width="300" height="56" rx="8"/></g>
+        <text class="lbl" x="320" y="902">7 · Preview shown to admin</text>
+        <text class="sub" x="320" y="920">counts, changed fields, errors</text>
+
+        <path class="edge" d="M300 906 L214 906 L214 986" marker-end="url(#ar3)"/>
+        <text class="tiny" x="150" y="898">cancel</text>
+        <g class="bx gray"><rect x="120" y="988" width="188" height="52" rx="8"/></g>
+        <text class="lbl" x="138" y="1012">Discard staging</text>
+        <text class="sub" x="138" y="1030">database unchanged</text>
+
+        <path class="edge" d="M600 906 L686 906 L686 986" marker-end="url(#ar3)"/>
+        <text class="tiny" x="620" y="898">confirm</text>
+        <g class="bx purple"><rect x="580" y="988" width="240" height="52" rx="8"/></g>
+        <text class="lbl" x="598" y="1012">COMMIT — one transaction</text>
+        <text class="sub" x="598" y="1030">INSERT + partial UPDATE → PostgreSQL</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 6.1</b> The seven-stage import pipeline. The only path that writes to <code>acs</code> is an explicit admin confirmation at stage 7.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="s7">
+  <h2><span class="n">07</span> Stage by stage</h2>
+
+  <h3>Stage 1–2 · Upload and archive</h3>
+  <p>The file is written to storage before anything else happens, and a SHA-256 hash is taken. The hash gives you duplicate-upload detection for free: if a committed import already has the same hash, you can warn the admin that this exact file has been processed before. Limits worth enforcing here: maximum file size, allowed extensions (<code>.csv</code>, <code>.xlsx</code>), and MIME sniffing rather than trusting the extension.</p>
+
+  <h3>Stage 3 · Parse and map the header</h3>
+  <p>Header names arrive inconsistent — <code>AC_ID</code>, <code>ac id</code>, <code>"AC ID "</code>. Normalise aggressively, then map through an alias table so that management does not have to memorise exact column spellings.</p>
+
+<pre><code><span class="k">const</span> COLUMN_ALIASES = {
+  ac_id:              [<span class="s">'ac_id'</span>, <span class="s">'acid'</span>, <span class="s">'ac_no'</span>, <span class="s">'ac_number'</span>, <span class="s">'asset_id'</span>],
+  room_id:            [<span class="s">'room_id'</span>, <span class="s">'room'</span>, <span class="s">'room_no'</span>],
+  ac_make_company:    [<span class="s">'ac_make_company'</span>, <span class="s">'company'</span>, <span class="s">'make'</span>, <span class="s">'brand'</span>, <span class="s">'manufacturer'</span>],
+  ac_model_number:    [<span class="s">'ac_model_number'</span>, <span class="s">'model'</span>, <span class="s">'model_no'</span>],
+  ac_serial_number:   [<span class="s">'ac_serial_number'</span>, <span class="s">'serial'</span>, <span class="s">'serial_no'</span>, <span class="s">'sl_no'</span>],
+  ac_capacity_ton:    [<span class="s">'ac_capacity_ton'</span>, <span class="s">'capacity'</span>, <span class="s">'capacity_ton'</span>, <span class="s">'tonnage'</span>, <span class="s">'ton'</span>],
+  ac_type:            [<span class="s">'ac_type'</span>, <span class="s">'type'</span>],
+  manufacturing_year: [<span class="s">'manufacturing_year'</span>, <span class="s">'mfg_year'</span>, <span class="s">'year_of_manufacture'</span>],
+  installation_year:  [<span class="s">'installation_year'</span>, <span class="s">'install_year'</span>, <span class="s">'year_installed'</span>],
+  current_status:     [<span class="s">'current_status'</span>, <span class="s">'status'</span>, <span class="s">'condition'</span>],
+  ac_star_rating:     [<span class="s">'ac_star_rating'</span>, <span class="s">'star'</span>, <span class="s">'star_rating'</span>, <span class="s">'rating'</span>],
+  power_rating_kw:    [<span class="s">'power_rating_kw'</span>, <span class="s">'power'</span>, <span class="s">'power_kw'</span>, <span class="s">'kw'</span>],
+  power_factor:       [<span class="s">'power_factor'</span>, <span class="s">'pf'</span>]
+};
+
+<span class="k">const</span> normalise = h =&gt; h.trim().toLowerCase()
+  .replace(<span class="s">/[\s\-.]+/g</span>, <span class="s">'_'</span>).replace(<span class="s">/[^a-z0-9_]/g</span>, <span class="s">''</span>);
+
+<span class="k">function</span> mapHeader(headerRow) {
+  <span class="k">const</span> map = {}, unknown = [];
+  headerRow.forEach((raw, idx) =&gt; {
+    <span class="k">const</span> n = normalise(raw);
+    <span class="k">const</span> hit = Object.entries(COLUMN_ALIASES)
+      .find(([, aliases]) =&gt; aliases.includes(n));
+    hit ? map[hit[0]] = idx : unknown.push(raw);
+  });
+  <span class="k">if</span> (!(<span class="s">'ac_id'</span> <span class="k">in</span> map)) <span class="k">throw new</span> ImportError(<span class="s">'E_NO_KEY'</span>,
+    <span class="s">'The file must contain an AC ID column.'</span>);
+  <span class="k">return</span> { map, unknown, suppliedFields: Object.keys(map) };
+}</code></pre>
+
+  <p><code>suppliedFields</code> is the list that section 09 depends on. Carry it on the import record as <code>detected_columns</code>.</p>
+
+  <h3>Stage 4 · Load into staging</h3>
+  <p>Each parsed row becomes one JSONB object containing only the keys the file supplied. Insert in batches of 500–1000 rather than one statement per row.</p>
+
+<pre><code><span class="k">function</span> rowToJson(values, map) {
+  <span class="k">const</span> obj = {};
+  <span class="k">for</span> (<span class="k">const</span> [field, idx] <span class="k">of</span> Object.entries(map)) {
+    obj[field] = (values[idx] ?? <span class="s">''</span>).trim();   <span class="c">// key present even if blank</span>
+  }
+  <span class="k">return</span> obj;                                   <span class="c">// absent columns simply have no key</span>
+}</code></pre>
+
+  <h3>Stage 5 · Validate</h3>
+  <p>Validation is per row and never aborts the file. A bad row is marked <code>reject</code> with a readable message and a line number; the rest of the file still gets imported. See section 14 for the full rule table.</p>
+
+  <h3>Stage 6 · Reconcile</h3>
+  <p>One query fetches every existing AC mentioned in the file, then each staged row is classified in memory. This is a single round trip, not one lookup per row.</p>
+
+<pre><code><span class="c">-- pull every relevant existing record in one shot</span>
+<span class="k">SELECT</span> * <span class="k">FROM</span> acs
+<span class="k">WHERE</span>  ac_id = <span class="k">ANY</span>($1::varchar[]);</code></pre>
+
+  <h3>Stage 7 · Preview, then commit</h3>
+  <p>The preview endpoint returns the counts and a sample of changes. Only when the admin confirms does the committer open a transaction and apply the staged rows. This separation is what makes a mistaken upload harmless.</p>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="s8">
+  <h2><span class="n">08</span> Reconciliation logic</h2>
+  <p>Reconciliation answers one question per row: <em>does this AC already exist, and if so, does anything actually change?</em></p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reconciliation decision tree for a single CSV row">
+        <defs>
+          <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+
+        <g class="bx purple"><rect x="340" y="16" width="220" height="48" rx="8"/></g>
+        <text class="lbl" x="360" y="46">One staged row</text>
+        <path class="edge" d="M450 64 L450 88" marker-end="url(#ar4)"/>
+
+        <g class="bx gray"><polygon points="450,90 620,136 450,182 280,136"/></g>
+        <text class="lbl" x="392" y="132">ac_id valid?</text>
+        <text class="sub" x="372" y="150">present, well-formed</text>
+
+        <g class="bx red"><rect x="672" y="110" width="196" height="52" rx="8"/></g>
+        <text class="lbl" x="690" y="134">REJECT</text>
+        <text class="sub" x="690" y="152">no usable identity</text>
+        <path class="edge" d="M620 136 L668 136" marker-end="url(#ar4)"/>
+        <text class="tiny" x="628" y="128">no</text>
+
+        <path class="edge" d="M450 182 L450 206" marker-end="url(#ar4)"/>
+        <text class="tiny" x="458" y="199">yes</text>
+
+        <g class="bx gray"><polygon points="450,208 620,254 450,300 280,254"/></g>
+        <text class="lbl" x="352" y="250">Seen earlier in this file?</text>
+        <text class="sub" x="404" y="268">same ac_id twice</text>
+
+        <g class="bx amber"><rect x="672" y="228" width="196" height="52" rx="8"/></g>
+        <text class="lbl" x="690" y="252">DUPLICATE</text>
+        <text class="sub" x="690" y="270">keep last, flag the rest</text>
+        <path class="edge" d="M620 254 L668 254" marker-end="url(#ar4)"/>
+        <text class="tiny" x="628" y="246">yes</text>
+
+        <path class="edge" d="M450 300 L450 324" marker-end="url(#ar4)"/>
+        <text class="tiny" x="458" y="317">no</text>
+
+        <g class="bx gray"><polygon points="450,326 620,372 450,418 280,372"/></g>
+        <text class="lbl" x="376" y="368">Exists in acs table?</text>
+        <text class="sub" x="392" y="386">lookup by ac_id</text>
+
+        <path class="edge" d="M280 372 L180 372 L180 452" marker-end="url(#ar4)"/>
+        <text class="tiny" x="196" y="364">no</text>
+        <g class="bx green"><rect x="80" y="454" width="200" height="72" rx="8"/></g>
+        <text class="lbl" x="98" y="478">INSERT</text>
+        <text class="sub" x="98" y="496">supplied fields written</text>
+        <text class="sub" x="98" y="512">others take column default</text>
+
+        <path class="edge" d="M450 418 L450 452" marker-end="url(#ar4)"/>
+        <text class="tiny" x="458" y="441">yes</text>
+
+        <g class="bx gray"><polygon points="450,454 620,496 450,538 280,496"/></g>
+        <text class="lbl" x="336" y="492">Any supplied value differs?</text>
+        <text class="sub" x="392" y="510">field-by-field diff</text>
+
+        <path class="edge" d="M620 496 L668 496" marker-end="url(#ar4)"/>
+        <text class="tiny" x="628" y="488">no</text>
+        <g class="bx gray"><rect x="672" y="470" width="196" height="52" rx="8"/></g>
+        <text class="lbl" x="690" y="494">UNCHANGED</text>
+        <text class="sub" x="690" y="512">no write issued</text>
+
+        <path class="edge" d="M450 538 L450 566" marker-end="url(#ar4)"/>
+        <text class="tiny" x="458" y="558">yes</text>
+        <g class="bx blue"><rect x="300" y="568" width="300" height="44" rx="8"/></g>
+        <text class="lbl" x="320" y="588">UPDATE — only the changed, supplied fields</text>
+        <text class="sub" x="320" y="604">every other column is left exactly as it was</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 8.1</b> Per-row decision tree. Five terminal outcomes, each counted separately in the import report.</figcaption>
+  </figure>
+
+  <h3>Worked example</h3>
+  <p>Database holds 370 ACs. A file with 100 rows arrives.</p>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Row</th><th>ac_id</th><th>Lookup</th><th>Outcome</th></tr>
+    <tr><td>1</td><td>AC-371</td><td>not found</td><td>INSERT</td></tr>
+    <tr><td>2</td><td>AC-372</td><td>not found</td><td>INSERT</td></tr>
+    <tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+    <tr><td>95</td><td>AC-045</td><td>found, status differs</td><td>UPDATE</td></tr>
+    <tr><td>96</td><td>AC-046</td><td>found, identical</td><td>UNCHANGED</td></tr>
+    <tr><td>99</td><td>AC-371</td><td>already in this file</td><td>DUPLICATE</td></tr>
+    <tr><td>100</td><td><em>blank</em></td><td>—</td><td>REJECT</td></tr>
+  </table>
+  </div>
+  <p>Result: 370 + 94 inserts = <strong>464 ACs</strong>, with 4 updated, 1 unchanged, 1 duplicate and 1 rejected. Nothing was deleted and no existing record lost a field.</p>
+
+  <h3>The commit statement</h3>
+  <p>A single upsert handles insert-or-update, and <code>COALESCE</code> on the excluded value protects existing data when the CSV sends a blank.</p>
+
+<pre><code><span class="k">INSERT INTO</span> acs (ac_id, room_id, ac_make_company, current_status, power_rating_kw)
+<span class="k">VALUES</span> ($1, $2, $3, $4, $5)
+<span class="k">ON CONFLICT</span> (ac_id) <span class="k">DO UPDATE SET</span>
+    room_id         = <span class="k">COALESCE</span>(EXCLUDED.room_id,         acs.room_id),
+    ac_make_company = <span class="k">COALESCE</span>(EXCLUDED.ac_make_company, acs.ac_make_company),
+    current_status  = <span class="k">COALESCE</span>(EXCLUDED.current_status,  acs.current_status),
+    power_rating_kw = <span class="k">COALESCE</span>(EXCLUDED.power_rating_kw, acs.power_rating_kw),
+    updated_at      = now()
+<span class="k">RETURNING</span> (xmax = 0) <span class="k">AS</span> was_inserted;   <span class="c">-- true = INSERT, false = UPDATE</span></code></pre>
+
+  <div class="note">
+    <b>Reading the result</b>
+    <p><code>xmax = 0</code> is the standard way to tell whether an upsert inserted or updated. Use it to build the import counts without a second query.</p>
+  </div>
+
+  <p>The statement above still lists every column, which is fine when the CSV is full-width. For partial files, build the column list dynamically from <code>suppliedFields</code> — that is the subject of the next section.</p>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="s9">
+  <h2><span class="n">09</span> Missing fields — the three cases</h2>
+  <p class="lead">A CSV should never be required to carry every database column. Management should be able to send a two-column file that changes only the status of six units, and everything else must survive untouched.</p>
+
+  <p>Three situations look similar and must be treated differently.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Three cases of missing CSV data and how each is handled">
+        <defs>
+          <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+
+        <!-- case 1 -->
+        <g class="bx blue"><rect x="24" y="24" width="270" height="86" rx="8"/></g>
+        <text class="lbl" x="42" y="50">CASE 1 — Column absent</text>
+        <text class="sub" x="42" y="72">Header has no power_factor at all.</text>
+        <text class="sub" x="42" y="90">The file expresses no opinion.</text>
+        <path class="edge" d="M159 110 L159 156" marker-end="url(#ar5)"/>
+        <g class="bx green"><rect x="24" y="158" width="270" height="76" rx="8"/></g>
+        <text class="lbl" x="42" y="184">Leave the column alone</text>
+        <text class="sub" x="42" y="204">Field is not in the UPDATE list.</text>
+        <text class="sub" x="42" y="222">0.95 stays 0.95.</text>
+
+        <!-- case 2 -->
+        <g class="bx amber"><rect x="314" y="24" width="270" height="86" rx="8"/></g>
+        <text class="lbl" x="332" y="50">CASE 2 — Value blank</text>
+        <text class="sub" x="332" y="72">Column exists, cell is empty.</text>
+        <text class="sub" x="332" y="90">Usually means "I didn't fill it in".</text>
+        <path class="edge" d="M449 110 L449 156" marker-end="url(#ar5)"/>
+        <g class="bx green"><rect x="314" y="158" width="270" height="76" rx="8"/></g>
+        <text class="lbl" x="332" y="184">Keep the existing value</text>
+        <text class="sub" x="332" y="204">COALESCE(new, old) — default rule.</text>
+        <text class="sub" x="332" y="222">Blank never overwrites data.</text>
+
+        <!-- case 3 -->
+        <g class="bx red"><rect x="604" y="24" width="272" height="86" rx="8"/></g>
+        <text class="lbl" x="622" y="50">CASE 3 — Deliberate clear</text>
+        <text class="sub" x="622" y="72">Admin ticks "clear empty fields"</text>
+        <text class="sub" x="622" y="90">before committing this import.</text>
+        <path class="edge" d="M740 110 L740 156" marker-end="url(#ar5)"/>
+        <g class="bx purple"><rect x="604" y="158" width="272" height="76" rx="8"/></g>
+        <text class="lbl" x="622" y="184">Write NULL, on request only</text>
+        <text class="sub" x="622" y="204">Applies to present columns only.</text>
+        <text class="sub" x="622" y="222">Off by default, logged when used.</text>
+
+        <!-- example strip -->
+        <rect class="band" x="24" y="266" width="852" height="180" rx="8"/>
+        <text class="ttl" x="44" y="292">EXAMPLE — DATABASE ROW AC-001 BEFORE AND AFTER</text>
+
+        <text class="sub" x="44" y="318">Uploaded CSV:  ac_id, current_status, power_rating_kw</text>
+        <text class="sub" x="44" y="336">Row:           AC-001, Under Maintenance, 1.50</text>
+
+        <g class="bx gray"><rect x="44" y="352" width="380" height="76" rx="6"/></g>
+        <text class="lbl" x="60" y="374">Untouched (column absent)</text>
+        <text class="sub" x="60" y="394">company Daikin · model X123 · serial DAI001</text>
+        <text class="sub" x="60" y="412">capacity 1.5 · type Split · star 5 · pf 0.95</text>
+
+        <g class="bx blue"><rect x="450" y="352" width="380" height="76" rx="6"/></g>
+        <text class="lbl" x="466" y="374">Updated (supplied and different)</text>
+        <text class="sub" x="466" y="394">current_status: Active → Under Maintenance</text>
+        <text class="sub" x="466" y="412">power_rating_kw: 1.42 → 1.50</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 9.1</b> Absent, blank, and deliberately cleared are three different intentions. Only the third writes NULL.</figcaption>
+  </figure>
+
+  <div class="note warn">
+    <b>The rule that protects the data</b>
+    <p>A column missing from the CSV is never a request to delete. Two columns supplied means two columns updated — the other twelve keep whatever they had.</p>
+  </div>
+
+  <h3>Building the UPDATE from supplied fields only</h3>
+  <p>The <code>SET</code> clause is generated per import from <code>detected_columns</code>, so a two-column file produces a two-column update.</p>
+
+<pre><code><span class="k">function</span> buildUpsert(suppliedFields, { clearEmptyFields }) {
+  <span class="c">// ac_id is the conflict target, never in the SET list</span>
+  <span class="k">const</span> cols = suppliedFields.filter(f =&gt; f !== <span class="s">'ac_id'</span>);
+
+  <span class="k">const</span> setClause = cols.map(c =&gt; clearEmptyFields
+      ? <span class="s">`${c} = EXCLUDED.${c}`</span>                          <span class="c">// blank → NULL</span>
+      : <span class="s">`${c} = COALESCE(EXCLUDED.${c}, acs.${c})`</span>      <span class="c">// blank → keep old</span>
+  ).join(<span class="s">',\n    '</span>);
+
+  <span class="k">return</span> <span class="s">`
+    INSERT INTO acs (ac_id, ${cols.join(', ')})
+    VALUES ($1, ${cols.map((_, i) =&gt; '$' + (i + 2)).join(', ')})
+    ON CONFLICT (ac_id) DO UPDATE SET
+    ${setClause},
+    updated_at = now()
+    RETURNING (xmax = 0) AS was_inserted`</span>;
+}</code></pre>
+
+  <div class="note">
+    <b>One detail that matters</b>
+    <p>Convert empty strings to <code>NULL</code> <em>before</em> binding parameters. <code>COALESCE</code> treats <code>''</code> as a real value and will happily overwrite <code>Daikin</code> with an empty string.</p>
+  </div>
+
+<pre><code><span class="k">const</span> clean = v =&gt; (v === <span class="k">undefined</span> || v === <span class="k">null</span> || String(v).trim() === <span class="s">''</span>)
+  ? <span class="k">null</span> : String(v).trim();</code></pre>
+
+  <h3>Import options offered to the admin</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Option</th><th>Default</th><th>Effect</th></tr>
+    <tr><td>Add new records</td><td>on</td><td>Rows whose <code>ac_id</code> is unknown are inserted. Turn off to run a corrections-only import.</td></tr>
+    <tr><td>Update existing records</td><td>on</td><td>Known rows are updated. Turn off to run an additions-only import.</td></tr>
+    <tr><td>Clear existing values when the CSV cell is empty</td><td><strong>off</strong></td><td>Case 3 above. Destructive; record who enabled it and when.</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <h2><span class="n">10</span> Re-uploading the same file</h2>
+  <p>Someone will upload the March file twice. The database must still hold 470 ACs afterwards, not 570.</p>
+
+  <p>It does, automatically, because reconciliation matches on <code>ac_id</code>. The second pass finds every row already present and identical, so all 100 rows land in <code>UNCHANGED</code> and no write is issued at all.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 880 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duplicate upload produces no net change">
+        <defs>
+          <marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+        <g class="bx purple"><rect x="20" y="70" width="170" height="70" rx="8"/></g>
+        <text class="lbl" x="38" y="98">Database</text>
+        <text class="sub" x="38" y="118">470 ACs</text>
+
+        <path class="edge" d="M190 105 L246 105" marker-end="url(#ar6)"/>
+        <g class="bx amber"><rect x="250" y="62" width="190" height="86" rx="8"/></g>
+        <text class="lbl" x="268" y="88">Same file again</text>
+        <text class="sub" x="268" y="108">100 rows</text>
+        <text class="sub" x="268" y="126">identical hash detected</text>
+
+        <path class="edge" d="M440 105 L496 105" marker-end="url(#ar6)"/>
+        <g class="bx gray"><rect x="500" y="46" width="200" height="118" rx="8"/></g>
+        <text class="lbl" x="518" y="72">Reconciliation</text>
+        <text class="sub" x="518" y="94">new: 0</text>
+        <text class="sub" x="518" y="112">updated: 0</text>
+        <text class="sub" x="518" y="130">unchanged: 100</text>
+        <text class="sub" x="518" y="148">writes issued: 0</text>
+
+        <path class="edge" d="M700 105 L756 105" marker-end="url(#ar6)"/>
+        <g class="bx green"><rect x="760" y="70" width="100" height="70" rx="8"/></g>
+        <text class="lbl" x="778" y="98">Database</text>
+        <text class="sub" x="778" y="118">470 ACs</text>
+
+        <text class="tiny" x="20" y="210">The primary key does the work. Idempotency is a property of the design, not a special case handled in code.</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 10.1</b> Re-uploading a processed file is a no-op. The hash check lets you warn the admin before they even reach the preview.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <h2><span class="n">11</span> Deletion policy</h2>
+  <p>This is where a careless importer destroys a year of records. A file with 100 rows does not mean the other 370 ACs were scrapped — it almost always means someone exported only the new purchases.</p>
+
+  <div class="note warn">
+    <b>Absolute rule</b>
+    <p>Missing from the CSV is never a reason to delete. An import only ever inserts and updates.</p>
+  </div>
+
+  <p>Removal is a separate, deliberate admin action, and even then it should be a soft removal:</p>
+
+<pre><code><span class="k">UPDATE</span> acs
+<span class="k">SET</span>    current_status    = <span class="s">'Decommissioned'</span>,
+       is_active         = FALSE,
+       decommissioned_at = now(),
+       updated_at        = now()
+<span class="k">WHERE</span>  ac_id = $1;</code></pre>
+
+  <p>Keeping the row preserves the maintenance history attached to it, keeps historical reports accurate, and means an AC that was removed by mistake can be restored. Dashboards simply filter on <code>is_active = TRUE</code>.</p>
+
+  <p>If a genuine full-replacement import is ever needed — a complete re-audit of the campus, say — make it an explicit, separately-named operation that first shows the admin exactly which ACs would be marked missing, and never let it be the default behaviour of a normal upload.</p>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="s12">
+  <h2><span class="n">12</span> Request sequence</h2>
+  <p>How the four calls of a full import interleave across the stack.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 880 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sequence diagram of an import across admin, API, services and database">
+        <defs>
+          <marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--dg-line)"/>
+          </marker>
+        </defs>
+        <g class="bx blue"><rect x="20" y="16" width="150" height="40" rx="6"/></g>
+        <text class="lbl" x="58" y="41">Admin UI</text>
+        <g class="bx green"><rect x="230" y="16" width="150" height="40" rx="6"/></g>
+        <text class="lbl" x="276" y="41">API layer</text>
+        <g class="bx amber"><rect x="440" y="16" width="170" height="40" rx="6"/></g>
+        <text class="lbl" x="490" y="41">Import services</text>
+        <g class="bx purple"><rect x="670" y="16" width="170" height="40" rx="6"/></g>
+        <text class="lbl" x="716" y="41">PostgreSQL</text>
+
+        <path class="edge-d" d="M95 56 L95 534"/>
+        <path class="edge-d" d="M305 56 L305 534"/>
+        <path class="edge-d" d="M525 56 L525 534"/>
+        <path class="edge-d" d="M755 56 L755 534"/>
+
+        <path class="edge" d="M95 92 L300 92" marker-end="url(#ar7)"/>
+        <text class="tiny" x="102" y="85">POST /api/imports (file)</text>
+        <path class="edge" d="M305 122 L520 122" marker-end="url(#ar7)"/>
+        <text class="tiny" x="312" y="115">archive · hash · parse header</text>
+        <path class="edge" d="M525 152 L750 152" marker-end="url(#ar7)"/>
+        <text class="tiny" x="532" y="145">INSERT staging_imports + rows</text>
+        <path class="edge" d="M750 182 L100 182" marker-end="url(#ar7)"/>
+        <text class="tiny" x="110" y="175">201 { import_id, total_rows, detected_columns }</text>
+
+        <path class="edge" d="M95 226 L300 226" marker-end="url(#ar7)"/>
+        <text class="tiny" x="102" y="219">POST /api/imports/:id/validate</text>
+        <path class="edge" d="M525 256 L750 256" marker-end="url(#ar7)"/>
+        <text class="tiny" x="532" y="249">per-row checks · FK existence</text>
+        <path class="edge" d="M750 286 L100 286" marker-end="url(#ar7)"/>
+        <text class="tiny" x="110" y="279">200 { valid, invalid, errors[] }</text>
+
+        <path class="edge" d="M95 330 L300 330" marker-end="url(#ar7)"/>
+        <text class="tiny" x="102" y="323">GET /api/imports/:id/preview</text>
+        <path class="edge" d="M525 360 L750 360" marker-end="url(#ar7)"/>
+        <text class="tiny" x="532" y="353">SELECT acs WHERE ac_id = ANY(...)</text>
+        <path class="edge" d="M750 390 L100 390" marker-end="url(#ar7)"/>
+        <text class="tiny" x="110" y="383">200 { insert:94, update:4, unchanged:1, reject:1 }</text>
+
+        <path class="edge" d="M95 434 L300 434" marker-end="url(#ar7)"/>
+        <text class="tiny" x="102" y="427">POST /api/imports/:id/commit</text>
+        <path class="edge" d="M525 464 L750 464" marker-end="url(#ar7)"/>
+        <text class="tiny" x="532" y="457">BEGIN · upserts · COMMIT</text>
+        <path class="edge" d="M750 496 L100 496" marker-end="url(#ar7)"/>
+        <text class="tiny" x="110" y="489">200 { import summary, db_before:370, db_after:464 }</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 12.1</b> Four calls: upload, validate, preview, commit. The database is only written at the last one.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 13 ============ -->
+<section id="s13">
+  <h2><span class="n">13</span> API reference</h2>
+
+  <h3>Import endpoints</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Method &amp; path</th><th>Purpose</th><th>Notes</th></tr>
+    <tr><td><code>POST /api/imports</code></td><td>Upload a file, parse it, load staging</td><td>multipart; body carries <code>target_entity</code>. Returns <code>import_id</code>.</td></tr>
+    <tr><td><code>POST /api/imports/:id/validate</code></td><td>Run all row checks</td><td>Writes verdicts into <code>staging_import_rows.errors</code>.</td></tr>
+    <tr><td><code>GET /api/imports/:id/preview</code></td><td>Classified counts + sample diffs</td><td>Read-only. Safe to call repeatedly.</td></tr>
+    <tr><td><code>POST /api/imports/:id/commit</code></td><td>Apply staged rows</td><td>Body carries the three import options. Transactional.</td></tr>
+    <tr><td><code>DELETE /api/imports/:id</code></td><td>Cancel and discard staging</td><td>Only allowed before commit.</td></tr>
+    <tr><td><code>GET /api/imports</code></td><td>Import history</td><td>Paginated; who uploaded what, and when.</td></tr>
+    <tr><td><code>GET /api/imports/:id/errors.csv</code></td><td>Download rejected rows</td><td>Admin fixes the file and re-uploads only the failures.</td></tr>
+  </table>
+  </div>
+
+  <h3>Asset endpoints</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Method &amp; path</th><th>Purpose</th></tr>
+    <tr><td><code>GET /api/acs</code></td><td>List with filters: <code>?status=</code> <code>?block_id=</code> <code>?room_id=</code> <code>?q=</code>, paginated</td></tr>
+    <tr><td><code>GET /api/acs/:ac_id</code></td><td>One AC with its location chain and maintenance history</td></tr>
+    <tr><td><code>PATCH /api/acs/:ac_id</code></td><td>Single-record edit from the UI</td></tr>
+    <tr><td><code>POST /api/acs/:ac_id/decommission</code></td><td>Soft removal (section 11)</td></tr>
+    <tr><td><code>POST /api/acs/:ac_id/maintenance</code></td><td>Log a service event</td></tr>
+    <tr><td><code>GET /api/dashboard/summary</code></td><td>Counts by status, block, company, star rating; total connected load</td></tr>
+  </table>
+  </div>
+
+  <h3>Response shape for a preview</h3>
+<pre><code>{
+  <span class="s">"import_id"</span>: 12,
+  <span class="s">"file_name"</span>: <span class="s">"new_acs_100.csv"</span>,
+  <span class="s">"detected_columns"</span>: [<span class="s">"ac_id"</span>, <span class="s">"ac_make_company"</span>, <span class="s">"current_status"</span>],
+  <span class="s">"ignored_columns"</span>: [<span class="s">"Remarks"</span>],
+  <span class="s">"counts"</span>: {
+    <span class="s">"total"</span>: 100, <span class="s">"insert"</span>: 94, <span class="s">"update"</span>: 4,
+    <span class="s">"unchanged"</span>: 1, <span class="s">"duplicate"</span>: 1, <span class="s">"reject"</span>: 1
+  },
+  <span class="s">"db_before"</span>: 370,
+  <span class="s">"db_after_if_committed"</span>: 464,
+  <span class="s">"sample_updates"</span>: [
+    { <span class="s">"ac_id"</span>: <span class="s">"AC-045"</span>,
+      <span class="s">"changes"</span>: { <span class="s">"current_status"</span>: [<span class="s">"Active"</span>, <span class="s">"Under Maintenance"</span>] } }
+  ],
+  <span class="s">"errors"</span>: [
+    { <span class="s">"line"</span>: 100, <span class="s">"code"</span>: <span class="s">"E_MISSING_KEY"</span>, <span class="s">"message"</span>: <span class="s">"AC ID is blank."</span> }
+  ]
+}</code></pre>
+</section>
+
+<!-- ============ 14 ============ -->
+<section id="s14">
+  <h2><span class="n">14</span> Validation rules</h2>
+  <p>Run these per row during stage 5. Each failure records a code, a message written for the person who made the spreadsheet, and the line number.</p>
+
+  <div class="tablewrap">
+  <table>
+    <tr><th>Code</th><th>Check</th><th>Message shown to the admin</th></tr>
+    <tr><td><code>E_MISSING_KEY</code></td><td><code>ac_id</code> present and non-blank</td><td>AC ID is blank.</td></tr>
+    <tr><td><code>E_KEY_FORMAT</code></td><td>Matches <code>^[A-Za-z0-9\-_/]{1,50}$</code></td><td>AC ID contains characters that are not allowed.</td></tr>
+    <tr><td><code>E_DUP_IN_FILE</code></td><td>Same <code>ac_id</code> appears once in the file</td><td>This AC ID appears on line 12 as well.</td></tr>
+    <tr><td><code>E_ROOM_UNKNOWN</code></td><td><code>room_id</code> exists in <code>rooms</code></td><td>Room R-204 is not in the system. Add the room first.</td></tr>
+    <tr><td><code>E_ROOM_REQUIRED</code></td><td>New ACs must name a room</td><td>A new AC needs a room ID.</td></tr>
+    <tr><td><code>E_SERIAL_TAKEN</code></td><td>Serial not already used by a different <code>ac_id</code></td><td>Serial DK12345 already belongs to AC-118.</td></tr>
+    <tr><td><code>E_NUMBER</code></td><td>Numeric fields parse as numbers</td><td>Capacity "1.5 Ton" is not a number. Use 1.5.</td></tr>
+    <tr><td><code>E_RANGE_STAR</code></td><td>Star rating 1–5</td><td>Star rating must be between 1 and 5.</td></tr>
+    <tr><td><code>E_RANGE_PF</code></td><td>Power factor 0–1</td><td>Power factor must be between 0 and 1.</td></tr>
+    <tr><td><code>E_RANGE_YEAR</code></td><td>Years 1900–2100, install ≥ manufacture</td><td>Installation year is before the manufacturing year.</td></tr>
+    <tr><td><code>E_ENUM_STATUS</code></td><td>Status is one of the allowed values</td><td>Status "Broken" is not recognised. Use Active, Under Maintenance, Not Working or Decommissioned.</td></tr>
+    <tr><td><code>E_LENGTH</code></td><td>Text fits the column width</td><td>Model number is longer than 100 characters.</td></tr>
+  </table>
+  </div>
+
+  <h4>Normalisation before validation</h4>
+  <p>Half of the errors above disappear if you clean values first — and cleaning is safer than rejecting for things that are unambiguous.</p>
+  <ul>
+    <li>Trim whitespace, collapse internal doubles, strip a UTF-8 BOM from the first header cell.</li>
+    <li><code>"1.5 Ton"</code>, <code>"1.5T"</code>, <code>"1,5"</code> → <code>1.5</code>.</li>
+    <li><code>"active"</code>, <code>"ACTIVE"</code>, <code>"Working"</code> → <code>Active</code>, through a status alias map.</li>
+    <li>Excel date cells → ISO <code>YYYY-MM-DD</code> before they reach a <code>DATE</code> column.</li>
+    <li>Excel's habit of turning <code>AC-001</code> into a formula or a number is worth a specific check.</li>
+  </ul>
+
+  <div class="note">
+    <b>Status values</b>
+    <p>Keep the allowed list in a lookup table rather than a <code>CHECK</code> constraint, so an admin can add a new status without a migration.</p>
+  </div>
+</section>
+
+<!-- ============ 15 ============ -->
+<section id="s15">
+  <h2><span class="n">15</span> Transactions and concurrency</h2>
+
+  <p>The commit is all-or-nothing. If row 400 of 500 violates a constraint that validation somehow missed, the whole import rolls back and the database is exactly as it was before the admin clicked confirm.</p>
+
+<pre><code><span class="k">async function</span> commitImport(importId, options) {
+  <span class="k">const</span> client = <span class="k">await</span> pool.connect();
+  <span class="k">try</span> {
+    <span class="k">await</span> client.query(<span class="s">'BEGIN'</span>);
+
+    <span class="k">const</span> before = <span class="k">await</span> countAcs(client);
+    <span class="k">const</span> rows   = <span class="k">await</span> fetchStagedRows(client, importId, [<span class="s">'insert'</span>, <span class="s">'update'</span>]);
+    <span class="k">const</span> sql    = buildUpsert(await suppliedFields(client, importId), options);
+
+    <span class="k">let</span> inserted = 0, updated = 0;
+    <span class="k">for</span> (<span class="k">const</span> batch <span class="k">of</span> chunk(rows, 500)) {
+      <span class="k">for</span> (<span class="k">const</span> r <span class="k">of</span> batch) {
+        <span class="k">const</span> res = <span class="k">await</span> client.query(sql, toParams(r));
+        res.rows[0].was_inserted ? inserted++ : updated++;
+      }
+    }
+
+    <span class="k">const</span> after = <span class="k">await</span> countAcs(client);
+    <span class="k">await</span> client.query(
+      <span class="s">`UPDATE staging_imports
+         SET status = 'committed', committed_at = now(),
+             inserted_rows = $2, updated_rows = $3
+       WHERE import_id = $1`</span>, [importId, inserted, updated]);
+
+    <span class="k">await</span> client.query(<span class="s">'COMMIT'</span>);
+    <span class="k">return</span> { inserted, updated, before, after };
+
+  } <span class="k">catch</span> (err) {
+    <span class="k">await</span> client.query(<span class="s">'ROLLBACK'</span>);
+    <span class="k">await</span> markImportFailed(importId, err);       <span class="c">// separate connection</span>
+    <span class="k">throw</span> err;
+  } <span class="k">finally</span> {
+    client.release();
+  }
+}</code></pre>
+
+  <div class="note rule">
+    <b>Two admins, one moment</b>
+    <p>If two people commit overlapping imports at the same time, the later one wins on any shared <code>ac_id</code> — <code>ON CONFLICT DO UPDATE</code> serialises them safely, no row is lost, and neither transaction fails. If you need stricter behaviour, take an advisory lock per <code>target_entity</code> for the duration of the commit so imports queue rather than interleave.</p>
+  </div>
+
+  <h4>Performance notes</h4>
+  <ul>
+    <li>Row-by-row upserts are fine to about 10 000 rows. Beyond that, <code>COPY</code> into a temporary table and run one set-based <code>INSERT … SELECT … ON CONFLICT</code>.</li>
+    <li>For files above a few thousand rows, run validation and commit as a background job and let the UI poll <code>GET /api/imports/:id</code> for status.</li>
+    <li>Reconciliation must never issue one <code>SELECT</code> per row. One <code>= ANY($1::varchar[])</code> query, then classify in memory.</li>
+  </ul>
+</section>
+
+<!-- ============ 16 ============ -->
+<section id="s16">
+  <h2><span class="n">16</span> Project structure</h2>
+  <p>The shape below keeps route handlers thin and puts every import rule in one folder, which is where you will spend most of your time.</p>
+
+<div class="tree"><b>backend/</b>
+├── src/
+│   ├── <b>config/</b>
+│   │   ├── db.js                  pg Pool, single shared instance
+│   │   └── env.js                 validated environment variables
+│   ├── <b>routes/</b>
+│   │   ├── import.routes.js       upload · validate · preview · commit
+│   │   ├── ac.routes.js
+│   │   ├── location.routes.js     colleges · blocks · floors · rooms
+│   │   └── report.routes.js
+│   ├── <b>controllers/</b>            HTTP in, service call, HTTP out
+│   │   ├── import.controller.js
+│   │   └── ac.controller.js
+│   ├── <b>services/</b>               all business rules live here
+│   │   ├── <b>import/</b>
+│   │   │   ├── parser.service.js       CSV / XLSX → rows
+│   │   │   ├── headerMap.js            alias table + normalisation
+│   │   │   ├── staging.service.js      load into staging tables
+│   │   │   ├── validator.service.js    per-row rules, error codes
+│   │   │   ├── reconciler.service.js   insert / update / unchanged
+│   │   │   ├── committer.service.js    transaction + dynamic upsert
+│   │   │   └── report.service.js       counts, error CSV export
+│   │   ├── ac.service.js
+│   │   └── dashboard.service.js
+│   ├── <b>repositories/</b>            raw SQL, nothing else
+│   │   ├── ac.repo.js
+│   │   ├── room.repo.js
+│   │   └── staging.repo.js
+│   ├── <b>middleware/</b>
+│   │   ├── auth.js                JWT, role check
+│   │   ├── upload.js              multer, size and MIME limits
+│   │   └── errorHandler.js        maps ImportError → HTTP
+│   ├── <b>utils/</b>
+│   │   ├── clean.js               trim, empty → null, number parsing
+│   │   └── hash.js                SHA-256 of uploaded file
+│   └── app.js
+├── <b>migrations/</b>
+│   ├── 001_core_schema.sql
+│   ├── 002_staging_tables.sql
+│   └── 003_audit_log.sql
+├── <b>storage/uploads/</b>            archived originals, read-only
+├── <b>tests/</b>
+│   ├── reconciler.test.js
+│   ├── partialUpdate.test.js
+│   └── fixtures/*.csv
+└── package.json</div>
+
+  <div class="note">
+    <b>Why repositories are separate</b>
+    <p>Keeping SQL out of services means you can unit-test reconciliation logic with plain objects and no database at all. That is the part of the system most worth testing.</p>
+  </div>
+</section>
+
+<!-- ============ 17 ============ -->
+<section id="s17">
+  <h2><span class="n">17</span> Audit trail and reporting</h2>
+
+  <p>After a commit, never just say "Upload successful." Show what happened, in numbers the admin can check against their own spreadsheet.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 880 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Import summary report layout">
+        <g class="bx gray"><rect x="20" y="20" width="410" height="290" rx="10"/></g>
+        <text class="lbl" x="44" y="52" style="font-size:15px">Import summary</text>
+        <path class="edge" d="M44 64 L406 64"/>
+        <text class="sub" x="44" y="88">File</text><text class="sub" x="250" y="88">new_acs_100.csv</text>
+        <text class="sub" x="44" y="108">Uploaded by</text><text class="sub" x="250" y="108">admin@college.edu</text>
+        <text class="sub" x="44" y="128">Completed</text><text class="sub" x="250" y="128">21 Sep 2026, 11:42</text>
+        <path class="edge-d" d="M44 144 L406 144"/>
+        <text class="sub" x="44" y="168">Total rows</text><text class="sub" x="250" y="168">100</text>
+        <text class="sub" x="44" y="190">New ACs added</text><text class="sub" x="250" y="190">94</text>
+        <text class="sub" x="44" y="212">Existing ACs updated</text><text class="sub" x="250" y="212">4</text>
+        <text class="sub" x="44" y="234">Unchanged</text><text class="sub" x="250" y="234">1</text>
+        <text class="sub" x="44" y="256">Duplicate rows in file</text><text class="sub" x="250" y="256">1</text>
+        <text class="sub" x="44" y="278">Rejected rows</text><text class="sub" x="250" y="278">1</text>
+        <path class="edge" d="M44 292 L406 292"/>
+
+        <g class="bx blue"><rect x="455" y="20" width="200" height="130" rx="10"/></g>
+        <text class="lbl" x="479" y="52">Database count</text>
+        <text class="sub" x="479" y="82">Before</text><text class="sub" x="600" y="82">370</text>
+        <text class="sub" x="479" y="106">After</text><text class="sub" x="600" y="106">464</text>
+        <text class="sub" x="479" y="132">Net change</text><text class="sub" x="600" y="132">+94</text>
+
+        <g class="bx red"><rect x="455" y="170" width="200" height="140" rx="10"/></g>
+        <text class="lbl" x="479" y="202">Rows needing attention</text>
+        <text class="sub" x="479" y="230">Line 100 — AC ID blank</text>
+        <text class="sub" x="479" y="252">Line 99 — duplicate AC-371</text>
+        <text class="sub" x="479" y="284">Download errors as CSV →</text>
+
+        <g class="bx green"><rect x="680" y="20" width="180" height="130" rx="10"/></g>
+        <text class="lbl" x="704" y="52">Kept safe</text>
+        <text class="sub" x="704" y="82">Fields not in file:</text>
+        <text class="sub" x="704" y="104">8 columns untouched</text>
+        <text class="sub" x="704" y="128">0 values cleared</text>
+
+        <g class="bx teal"><rect x="680" y="170" width="180" height="140" rx="10"/></g>
+        <text class="lbl" x="704" y="202">Archived original</text>
+        <text class="sub" x="704" y="230">new_acs_100.csv</text>
+        <text class="sub" x="704" y="252">sha256 a91f…c7</text>
+        <text class="sub" x="704" y="284">Download →</text>
+      </svg>
+    </div>
+    <figcaption><b>FIG 17.1</b> The report an admin should see after every commit. "Kept safe" is what builds trust in an importer.</figcaption>
+  </figure>
+
+  <h3>Change log</h3>
+  <p>For a management system that will be audited, record every field-level change to an AC, whether it came from an import or a manual edit.</p>
+
+<pre><code><span class="k">CREATE TABLE</span> ac_change_log (
+    log_id     BIGSERIAL <span class="k">PRIMARY KEY</span>,
+    ac_id      VARCHAR(50) <span class="k">NOT NULL</span>,
+    field_name VARCHAR(50) <span class="k">NOT NULL</span>,
+    old_value  TEXT,
+    new_value  TEXT,
+    source     VARCHAR(20) <span class="k">NOT NULL</span>,   <span class="c">-- 'import' | 'manual' | 'system'</span>
+    import_id  INT <span class="k">REFERENCES</span> staging_imports(import_id),
+    changed_by INT,
+    changed_at TIMESTAMPTZ <span class="k">DEFAULT</span> now()
+);
+
+<span class="k">CREATE INDEX</span> idx_change_ac   <span class="k">ON</span> ac_change_log(ac_id, changed_at <span class="k">DESC</span>);
+<span class="k">CREATE INDEX</span> idx_change_imp  <span class="k">ON</span> ac_change_log(import_id);</code></pre>
+
+  <p>Write these rows from the committer, using the <code>changed_fields</code> array that reconciliation already computed — the work is done, it just needs recording. With this table you can answer "who changed AC-045 to Under Maintenance, and which file did it come from?" in one query.</p>
+</section>
+
+<!-- ============ 18 ============ -->
+<section id="s18">
+  <h2><span class="n">18</span> Test checklist</h2>
+  <p>These are the cases that decide whether the importer is trustworthy. Each should be a fixture CSV and an assertion.</p>
+
+  <div class="tablewrap">
+  <table>
+    <tr><th>#</th><th>Scenario</th><th>Expected result</th></tr>
+    <tr><td>1</td><td>Empty database, upload 370 ACs</td><td>370 inserted, 0 updated</td></tr>
+    <tr><td>2</td><td>Upload 100 entirely new ACs</td><td>470 total, original 370 untouched</td></tr>
+    <tr><td>3</td><td>Re-upload the same 100-row file</td><td>470 total, 100 unchanged, 0 writes</td></tr>
+    <tr><td>4</td><td>File with only <code>ac_id, current_status</code></td><td>Only status changes; 12 other columns keep their values</td></tr>
+    <tr><td>5</td><td>Column present, cell blank, option off</td><td>Existing value survives</td></tr>
+    <tr><td>6</td><td>Column present, cell blank, option on</td><td>Value set to NULL, logged</td></tr>
+    <tr><td>7</td><td>Same <code>ac_id</code> on two lines</td><td>Last wins, earlier flagged duplicate</td></tr>
+    <tr><td>8</td><td>Serial number already used by another AC</td><td>Row rejected with <code>E_SERIAL_TAKEN</code>, rest imports</td></tr>
+    <tr><td>9</td><td><code>room_id</code> not in the database</td><td>Row rejected, import still commits the valid rows</td></tr>
+    <tr><td>10</td><td>Constraint violation mid-commit</td><td>Full rollback, database unchanged, import marked failed</td></tr>
+    <tr><td>11</td><td>Headers in mixed case with spaces</td><td>Mapped correctly through aliases</td></tr>
+    <tr><td>12</td><td>Unknown extra column in the file</td><td>Ignored, listed in the report, import proceeds</td></tr>
+    <tr><td>13</td><td>File with no <code>ac_id</code> column</td><td>Whole file rejected before staging</td></tr>
+    <tr><td>14</td><td>Decommissioned AC appears in a new file</td><td>Updated in place; history and maintenance records intact</td></tr>
+  </table>
+  </div>
+
+  <h3>Build order</h3>
+  <p>If you are starting from nothing, this sequence gets you a working system fastest without painting yourself into a corner:</p>
+  <ol>
+    <li>Migrations for the core schema, seeded with one college, a block, a floor and a few rooms.</li>
+    <li>Read endpoints for ACs, so you can see what is in the database.</li>
+    <li>Parser and header mapping, tested against three deliberately messy CSVs.</li>
+    <li>Staging tables and the upload endpoint. Stop and check the JSONB rows look right.</li>
+    <li>Validator with the error-code table from section 14.</li>
+    <li>Reconciler as pure functions, unit tested against fixtures — no database.</li>
+    <li>Committer with the dynamic upsert, then run the whole checklist above.</li>
+    <li>Preview UI, import report, change log.</li>
+    <li>Dashboard and exports last. They are easy once the data is trustworthy.</li>
+  </ol>
+
+  <div class="note ok">
+    <b>The one thing to get right</b>
+    <p>Everything in this document exists to protect a single behaviour: an upload adds and corrects, and never silently destroys. Build step 6 carefully and the rest follows.</p>
+  </div>
+</section>
+
+<footer>
+  College AC Management System · backend design document · revision 1.0
+</footer>
+
+</main>
+</div>
+</body>
+</html>

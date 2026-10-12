@@ -1,0 +1,904 @@
+openapi: 3.0.3
+info:
+  title: NITTTR ACMS API
+  version: "1.1"
+  description: >
+    Hand-maintained OpenAPI contract for /api/v1 (Phase 1.0).
+    tests/test_openapi.py verifies every implemented v1 route appears here;
+    keep this file in sync when adding/altering endpoints.
+    String filter params (search, status, block, department, asset_type,
+    manufacturer, floor, room, lifecycle, location_status, due_before, and
+    the reports ?block scope) treat the literal value "All" — the UI's
+    default sentinel — as absent: it is never applied as a filter predicate.
+  contact: {name: NITTTR Chennai}
+servers:
+  - url: /api/v1
+tags: [assets, maintenance, movements, qr, reports, system, users]
+
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        success: {type: boolean}
+        data: {}
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string}
+    Pagination:
+      type: object
+      properties:
+        page: {type: integer}
+        page_size: {type: integer}
+        total: {type: integer}
+        total_pages: {type: integer}
+    LocationLevel:
+      type: object
+      description: >
+        One hierarchy level of the nested location payload (source vs
+        confirmed, permanent location model). `id`/`name` are the confirmed
+        canonical entity (null when unresolved); `source` is the preserved
+        import text verbatim; `status` is RESOLVED (id set), UNRESOLVED
+        (source present, 0 matches), AMBIGUOUS (source present, >1 match) or
+        MISSING (no source). Flat list/detail fields carry the EFFECTIVE
+        text instead (canonical name -> id -> source); they never pose as
+        canonical here.
+      properties:
+        id: {type: string, nullable: true}
+        name: {type: string, nullable: true}
+        status: {type: string, enum: [RESOLVED, UNRESOLVED, MISSING, AMBIGUOUS]}
+        source: {type: string, nullable: true}
+        type: {type: string, nullable: true, description: Canonical room_type (room level only)}
+    AssetLocation:
+      type: object
+      properties:
+        status: {type: string, enum: [ASSIGNED, PARTIAL, PENDING]}
+        levels:
+          type: object
+          properties:
+            college: {$ref: '#/components/schemas/LocationLevel'}
+            block: {$ref: '#/components/schemas/LocationLevel'}
+            floor: {$ref: '#/components/schemas/LocationLevel'}
+            department: {$ref: '#/components/schemas/LocationLevel'}
+            room: {$ref: '#/components/schemas/LocationLevel'}
+        manual_fields: {type: array, items: {type: string}}
+    FacetEntry:
+      type: object
+      properties:
+        value: {type: string, description: Effective display label (canonical name -> id -> preserved source)}
+        count: {type: integer}
+        id: {type: string, nullable: true, description: Stable canonical id on block/department facets (null for source-only values); absent on other facets}
+  parameters:
+    page: {in: query, name: page, schema: {type: integer, default: 1}}
+    pageSize:
+      in: query
+      name: page_size
+      schema: {type: integer, default: 50, maximum: 200}
+    woId: {in: path, name: wo_id, required: true, schema: {type: string}}
+security:
+  - bearerAuth: []
+
+paths:
+  /openapi.json:
+    get:
+      tags: [system]
+      summary: This OpenAPI document
+      security: []
+      responses: {"200": {description: OpenAPI JSON}}
+  /assets:
+    get:
+      tags: [assets]
+      summary: List assets (paginated, filtered)
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: search, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: department, schema: {type: string}}
+        - {in: query, name: asset_type, schema: {type: string}}
+        - {in: query, name: manufacturer, schema: {type: string}}
+        - {in: query, name: sort, schema: {type: string, description: "'key' or '-key'; whitelisted keys only"}}
+        - {in: query, name: floor, schema: {type: string}}
+        - {in: query, name: room, schema: {type: string}}
+        - {in: query, name: lifecycle, schema: {type: string}}
+        - {in: query, name: location_status, schema: {type: string, enum: [ASSIGNED, PARTIAL, PENDING]}}
+        - {in: query, name: due_before, schema: {type: string, format: date}}
+      responses: {"200": {description: Asset page}, "401": {description: Unauthenticated}, "400": {description: INVALID_PAGINATION}}
+    post:
+      tags: [assets]
+      summary: Create asset (CREATE_ASSET)
+      responses: {"201": {description: Created}, "400": {description: Validation error}, "409": {description: Duplicate serial number}}
+  /assets/facets:
+    get:
+      tags: [assets]
+      summary: Distinct values + counts for the asset filter bar (VIEW_ASSET)
+      description: >
+        One UNION ALL statement for all seven facets. Block/department
+        entries are FacetEntry objects (effective label + stable canonical
+        id, grouped by id so same-named entities never merge); every other
+        facet is a plain {value, count} bucket.
+      responses: {"200": {description: Facet counts}, "401": {description: Unauthenticated}}
+  /assets/export:
+    get:
+      tags: [assets]
+      summary: Streaming CSV export (EXPORT_DATA); honours the same filters as the list
+      parameters:
+        - {in: query, name: format, schema: {type: string, enum: [csv], default: csv}}
+      responses: {"200": {description: CSV attachment}, "400": {description: Unsupported format}, "401": {description: Unauthenticated}}
+  /assets/import:
+    post:
+      tags: [assets]
+      summary: Bulk import from .xlsx/.csv (IMPORT_DATA); one transaction, chunked statements with savepoint fallback to per-row isolation
+      parameters:
+        - {in: query, name: dry_run, schema: {type: boolean, default: false, description: Classify rows and write nothing}}
+        - {in: header, name: Idempotency-Key, schema: {type: string}, description: 'Commits only — a repeat of the same content replays the first report (replayed: true) instead of importing again; an identical request still running gets 409'}
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+                dry_run: {type: string}
+      responses:
+        "201": {description: Import report with counts}
+        "400": {description: Invalid or unsupported file}
+        "409": {description: IMPORT_IN_PROGRESS — identical Idempotency-Key import is still running}
+        "413": {description: File exceeds 10 MB}
+  /assets/{ref}:
+    get:
+      tags: [assets]
+      summary: Asset detail by asset_uuid, asset_code or ac_id
+      description: >
+        Enriched detail: flat location fields carry the EFFECTIVE text
+        (canonical name -> id -> preserved source, so a room_id of NULL never
+        hides the other dimensions) plus the nested `location` payload
+        (AssetLocation: confirmed ids, preserved source, per-field statuses).
+      parameters: [{in: path, name: ref, required: true, schema: {type: string}}]
+      responses: {"200": {description: Asset}, "404": {description: Not found}}
+  /assets/{ac_id}:
+    patch:
+      tags: [assets]
+      summary: Update asset (EDIT_ASSET)
+      parameters: [{in: path, name: ac_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+  /assets/{ac_id}/location:
+    patch:
+      tags: [assets]
+      summary: >-
+        Confirm location levels manually (EDIT_ASSET): a provided id pins that
+        level, an explicit null clears it, an omitted key is untouched; the
+        resolver re-derives every other level from stored source + chain
+      parameters: [{in: path, name: ac_id, required: true, schema: {type: string}}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                college_id: {type: string, nullable: true}
+                block_id: {type: string, nullable: true}
+                floor_id: {type: string, nullable: true}
+                department_id: {type: string, nullable: true}
+                room_id: {type: string, nullable: true}
+                note: {type: string, maxLength: 500}
+      responses:
+        "200": {description: Location confirmed; returns ac_id + nested location}
+        "400": {description: NO_FIELDS, unknown level id, or INVALID_LOCATION_CHAIN}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing EDIT_ASSET}
+        "404": {description: Asset not found}
+  /assets/{ac_id}/decommission:
+    post:
+      tags: [assets]
+      summary: Decommission asset (DECOMMISSION_ASSET)
+      parameters: [{in: path, name: ac_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Decommissioned}}
+  /assets/{ref}/qr:
+    get:
+      tags: [qr]
+      summary: QR image for an asset (VIEW_ASSET) — payload is {FRONTEND_URL}/a/{asset_uuid}
+      parameters:
+        - {in: path, name: ref, required: true, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [png, svg, payload]}}
+        - {in: query, name: size, schema: {type: integer}, description: PNG edge length in px (128-2048)}
+      responses: {"200": {description: QR image}, "400": {description: Invalid size}}
+  /assets/{ref}/qr/regenerate:
+    post:
+      tags: [qr]
+      summary: Re-issue an asset QR label — bumps qr_version and audits; payload unchanged so old stickers keep working (EDIT_ASSET)
+      parameters: [{in: path, name: ref, required: true, schema: {type: string}}]
+      responses: {"200": {description: New qr_version + payload}, "404": {description: Not found}}
+  /assets/qr/batch:
+    get:
+      tags: [qr]
+      summary: Printable A4 label sheet PDF, 3x8 labels per page (EXPORT_DATA)
+      parameters:
+        - {in: query, name: ids, schema: {type: string}, description: Comma-separated refs; omit for all active assets (max 96 labels)}
+      responses: {"200": {description: PDF attachment}, "404": {description: No assets matched}, "401": {description: Unauthenticated}}
+  /qr/resolve:
+    post:
+      tags: [qr]
+      summary: Resolve a scanned QR payload to an asset (VIEW_ASSET) — rate-limited; foreign-host URLs rejected with FOREIGN_HOST
+      responses: {"200": {description: Resolved asset ref}, "400": {description: INVALID_QR or FOREIGN_HOST}, "404": {description: Unknown ref}}
+  /public/assets/{ref}:
+    get:
+      tags: [qr]
+      summary: 'Public QR landing — reduced fields (asset_code, make, model, type, capacity, block, floor, room, operational_status, last_maintenance_date), anonymous, rate-limited, Cache-Control: public, max-age=60'
+      security: []
+      parameters: [{in: path, name: ref, required: true, schema: {type: string}}]
+      responses: {"200": {description: Public asset view}, "404": {description: Not found}, "429": {description: Rate limited}}
+  /maintenance:
+    get:
+      tags: [maintenance]
+      summary: List work orders (VIEW_ASSET; technicians see own jobs only)
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: status, schema: {type: string}, description: Comma-separated status filter}
+        - {in: query, name: priority, schema: {type: string}, description: Comma-separated priority filter}
+        - {in: query, name: ac_id, schema: {type: string}}
+        - {in: query, name: assigned_to, schema: {type: string}, description: me or a profile id}
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: q, schema: {type: string}, description: Free-text search}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: Work-order page}
+        "400": {description: Invalid filter value}
+    post:
+      tags: [maintenance]
+      summary: Create work order (MANAGE_MAINTENANCE; technician_id assigns immediately)
+      responses:
+        "201": {description: Created}
+        "400": {description: Validation error}
+        "403": {description: Assigning others requires ASSIGN_MAINTENANCE}
+        "404": {description: Asset or technician not found}
+  /maintenance/sync:
+    post:
+      tags: [maintenance]
+      summary: Replay offline mutations (MANAGE_MAINTENANCE; idempotent, server wins)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mutations]
+              properties:
+                mutations:
+                  type: array
+                  maxItems: 100
+                  items: {type: object}
+      responses:
+        "200": {description: Per-item applied/duplicate/rejected plus counts}
+        "400": {description: Invalid payload}
+  /maintenance/{wo_id}:
+    get:
+      tags: [maintenance]
+      summary: Work-order detail with timeline events and comments (VIEW_ASSET)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses:
+        "200": {description: Work order with events and comments}
+        "404": {description: Work order not found}
+    patch:
+      tags: [maintenance]
+      summary: Update work-order content only (MANAGE_MAINTENANCE; status changes use the lifecycle endpoints)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses:
+        "200": {description: Updated}
+        "400": {description: Validation error or status field rejected}
+  /maintenance/{wo_id}/assign:
+    post:
+      tags: [maintenance]
+      summary: Assign or reassign a technician (ASSIGN_MAINTENANCE)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "400": {description: Validation}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/accept:
+    post:
+      tags: [maintenance]
+      summary: Technician accepts the job (owner or manager, once)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/start:
+    post:
+      tags: [maintenance]
+      summary: Start work (owner or manager, acceptance required first)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "400": {description: Not accepted yet}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/complete:
+    post:
+      tags: [maintenance]
+      summary: Complete work (owner or manager, work_performed required)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "400": {description: work_performed required}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/escalate:
+    post:
+      tags: [maintenance]
+      summary: Escalate priority (owner or manager, reason required)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "400": {description: Reason required}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/cancel:
+    post:
+      tags: [maintenance]
+      summary: Cancel the job (ASSIGN_MAINTENANCE, optional reason)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      responses: {"200": {description: Updated work order}, "403": {description: Forbidden}, "404": {description: Not found}, "409": {description: Illegal state}}
+  /maintenance/{wo_id}/comments:
+    post:
+      tags: [maintenance]
+      summary: Add a comment or photo note to the job (MANAGE_MAINTENANCE)
+      parameters:
+        - $ref: "#/components/parameters/woId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: {type: string, minLength: 1, maxLength: 4000}
+                photos: {type: array, items: {type: string}, maxItems: 10}
+      responses:
+        "201": {description: Created comment}
+        "400": {description: Validation error}
+        "404": {description: Work order not found}
+  /reports/maintenance-trend:
+    get:
+      tags: [reports]
+      summary: Monthly maintenance trend plus priority distribution and stats (VIEW_REPORTS)
+      description: >
+        monthlyTrend is a zero-filled window of calendar months (default: the
+        current month and the five before it; months with data outside the
+        window follow in ascending order). from/to override the window
+        (max 24 months, else 400 INVALID_RANGE) and filter trend rows, stats
+        and priorityDistribution by bucket date
+        COALESCE(scheduled_date, completed_at::date). block scopes every
+        query by the work order's asset block. format=csv streams the
+        monthly series as a UTF-8 CSV download.
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}, description: "Window start (YYYY-MM-DD)"}
+        - {in: query, name: to, schema: {type: string, format: date}, description: "Window end (YYYY-MM-DD)"}
+        - {in: query, name: block, schema: {type: string}, description: "Block id/name substring"}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "monthlyTrend, priorityDistribution, stats (or CSV)"}
+        "400": {description: "INVALID_DATE / INVALID_RANGE / UNSUPPORTED_FORMAT"}
+        "403": {description: Forbidden}
+  /reports/assets-by-block:
+    get:
+      tags: [reports]
+      summary: Active assets grouped by block (VIEW_REPORTS)
+      description: from/to filter installation_date; block scopes to one block; format=csv downloads.
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "items: [{block, count, capacity_ton}], count"}
+        "400": {description: "INVALID_DATE / UNSUPPORTED_FORMAT"}
+        "403": {description: Forbidden}
+  /reports/assets-by-type:
+    get:
+      tags: [reports]
+      summary: Active assets grouped by AC type (VIEW_REPORTS)
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "items: [{type, count}], count"}
+        "403": {description: Forbidden}
+  /reports/capacity:
+    get:
+      tags: [reports]
+      summary: Active assets grouped by capacity in tons (VIEW_REPORTS)
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "items: [{capacity_ton, count}], count"}
+        "403": {description: Forbidden}
+  /reports/due-for-maintenance:
+    get:
+      tags: [reports]
+      summary: Active assets due for maintenance, earliest first (VIEW_REPORTS)
+      description: >
+        Filters next_service_date; from defaults to today (pass an earlier
+        date to include past-due units). JSON is capped at 500 rows (limit
+        echoed in the payload), CSV at 5000.
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "items, count, limit"}
+        "400": {description: "INVALID_DATE / UNSUPPORTED_FORMAT"}
+        "403": {description: Forbidden}
+  /chat:
+    post:
+      tags: [system]
+      summary: Deterministic assistant question (VIEW_ASSET, rate-limited 30/min)
+      description: >
+        Rule-based intents only (no LLM). MY_JOBS is identity-scoped to the
+        caller's own work orders; list-shaped data is capped at 50 rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: {type: string, minLength: 1, maxLength: 500}
+      responses:
+        "200": {description: "{question, intent, answer, data, latency_ms}"}
+        "400": {description: "QUESTION_REQUIRED / QUESTION_TOO_LONG"}
+        "403": {description: Forbidden}
+        "429": {description: Rate limited}
+  /movements:
+    get:
+      tags: [movements]
+      summary: List movement requests with asset + location names and comments (VIEW_ASSET)
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: mine, schema: {type: string}, description: "1/true = only requests I made"}
+        - {in: query, name: ac_id, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}, description: "Comma-separated PENDING,APPROVED,REJECTED,CANCELLED,COMPLETED"}
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: "Movement page; rows carry from/to room+floor+block names, requester/approver/completer names, from_location/to_location, comments[]"}
+        "400": {description: "INVALID_STATUS / INVALID_DATE / INVALID_PAGINATION"}
+    post:
+      tags: [movements]
+      summary: Request a movement (CREATE_MOVEMENT; asset ACTIVE, destination differs, one open movement per asset)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ac_id: {type: string}
+                asset_id: {type: string}
+                to_room_id: {type: string, minLength: 1}
+                reason: {type: string}
+      responses:
+        "201": {description: Created (PENDING)}
+        "400": {description: "SAME_ROOM / INVALID_ROOM / VALIDATION_ERROR"}
+        "403": {description: Forbidden}
+        "409": {description: "MOVEMENT_OPEN (another open request) / ASSET_DECOMMISSIONED / PROFILE_NOT_FOUND"}
+  /movements/{mv_id}/approve:
+    post:
+      tags: [movements]
+      summary: Approve a PENDING movement (APPROVE_MOVEMENT; approver ≠ requester, manager block-scoped)
+      parameters: [{in: path, name: mv_id, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: Approved (requester notified)}
+        "403": {description: "SELF_APPROVE or outside your assigned blocks"}
+        "404": {description: Not found}
+        "409": {description: INVALID_STATE}
+  /movements/{mv_id}/reject:
+    post:
+      tags: [movements]
+      summary: Reject a PENDING movement with a reason (APPROVE_MOVEMENT)
+      parameters: [{in: path, name: mv_id, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rejection_reason]
+              properties:
+                rejection_reason: {type: string, minLength: 1, maxLength: 500}
+                reason: {type: string, minLength: 1, maxLength: 500}
+      responses:
+        "200": {description: Rejected (requester notified)}
+        "400": {description: REASON_REQUIRED}
+        "403": {description: "SELF_APPROVE or outside your assigned blocks"}
+        "404": {description: Not found}
+        "409": {description: INVALID_STATE}
+  /movements/{mv_id}/complete:
+    post:
+      tags: [movements]
+      summary: Complete an APPROVED movement — moves the asset and writes location history in one transaction (COMPLETE_MOVEMENT; technicians only for their own request)
+      parameters: [{in: path, name: mv_id, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: "Completed (acs.room_id + asset_location_history written atomically; requester notified)"}
+        "403": {description: Forbidden}
+        "404": {description: Not found}
+        "409": {description: "INVALID_STATE (not APPROVED, or a concurrent complete already won)"}
+  /movements/{mv_id}/cancel:
+    post:
+      tags: [movements]
+      summary: Cancel your own PENDING movement request (requester only)
+      parameters: [{in: path, name: mv_id, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: Cancelled}
+        "403": {description: Only the requester can cancel}
+        "404": {description: Not found}
+        "409": {description: INVALID_STATE}
+  /movements/{mv_id}/comments:
+    post:
+      tags: [movements]
+      summary: Comment on a PENDING movement request (VIEW_ASSET)
+      parameters: [{in: path, name: mv_id, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: {type: string, minLength: 1, maxLength: 4000}
+      responses:
+        "201": {description: Created comment}
+        "400": {description: Validation error}
+        "404": {description: Not found}
+        "409": {description: "INVALID_STATE (not PENDING) / PROFILE_NOT_FOUND"}
+  /dashboard/summary:
+    get:
+      tags: [system]
+      summary: Dashboard KPIs + groupings (VIEW_ASSET); honours the same filters as /assets
+      description: >
+        Role-scoped (scope in payload): "all" (SUPER_ADMIN / unscoped manager),
+        "blocks" (manager with assigned_blocks), "mine" (TECHNICIAN: counts
+        over blocks where they hold work orders, plus my_jobs and an MTTR over
+        their completed jobs), "counts" (VIEWER: aggregates only, no overdue
+        rows, my_jobs null). KPIs add due_7d and mttr_hours; capacity_by_block
+        lists the busiest blocks (top 20). include_detail=0 downgrades a
+        VIEWER to the counts-only payload.
+      parameters:
+        - {in: query, name: search, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: department, schema: {type: string}}
+        - {in: query, name: asset_type, schema: {type: string}}
+        - {in: query, name: manufacturer, schema: {type: string}}
+        - {in: query, name: lifecycle, schema: {type: string}}
+        - {in: query, name: location_status, schema: {type: string}}
+        - {in: query, name: due_before, schema: {type: string, format: date}}
+      responses: {"200": {description: KPIs, by_status, by_manufacturer, by_type, by_block, by_capacity, overdue}, "401": {description: Unauthenticated}}
+  /audit:
+    get:
+      tags: [system]
+      summary: Audit log (VIEW_AUDIT)
+      description: >
+        Newest first. entity_type is a case-insensitive exact match, user is
+        a profile UUID (also matched via actor), action is a substring, q
+        searches action/entity_id/actor name, from/to are inclusive
+        YYYY-MM-DD, cursor is keyset pagination (base64url created_at|id)
+        and page/page_size is offset pagination. format=csv exports the same
+        filters (VIEW_REPORTS). old_values/new_values are redacted on read.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: entity_type, schema: {type: string}}
+        - {in: query, name: user, schema: {type: string, format: uuid}, description: "Profile UUID (alias: actor)"}
+        - {in: query, name: action, schema: {type: string}}
+        - {in: query, name: q, schema: {type: string}}
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: cursor, schema: {type: string}, description: "Opaque keyset cursor"}
+        - {in: query, name: format, schema: {type: string, enum: [json, csv]}}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: Audit page (+ next_cursor when more rows)}
+        "400": {description: "INVALID_FILTER / INVALID_DATE / INVALID_CURSOR / INVALID_PAGINATION"}
+  /me:
+    get:
+      tags: [users]
+      summary: Current user profile (any authenticated user, incl. PENDING)
+      responses: {"200": {description: Profile}, "401": {description: Unauthenticated}}
+    patch:
+      tags: [users]
+      summary: Edit own profile (whitelisted fields; never role/status)
+      responses: {"200": {description: Updated profile}}
+  /auth/register-profile:
+    post:
+      tags: [users]
+      summary: Idempotent self-registration fallback (role always VIEWER/PENDING)
+      responses: {"200": {description: Existing profile}, "201": {description: Created}}
+  /approvals:
+    get:
+      tags: [users]
+      summary: Signup approval queue (APPROVE_USERS/MANAGE_USERS)
+      parameters:
+        - {in: query, name: status, schema: {type: string, enum: [PENDING, APPROVED, REJECTED]}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses: {"200": {description: Pending profiles}, "401": {description: Unauthenticated}, "400": {description: VALIDATION_ERROR / INVALID_PAGINATION}}
+  /approvals/{profile_id}/approve:
+    post:
+      tags: [users]
+      summary: "Approve signup (manager: TECHNICIAN/VIEWER only; never self)"
+      parameters: [{in: path, name: profile_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Approved}, "403": {description: Out of scope}}
+  /approvals/{profile_id}/reject:
+    post:
+      tags: [users]
+      summary: Reject signup with reason
+      parameters: [{in: path, name: profile_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Rejected}}
+  /users:
+    get:
+      tags: [users]
+      summary: Users admin list (MANAGE_USERS)
+      parameters:
+        - {in: query, name: role, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: search, schema: {type: string}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses: {"200": {description: User page}, "401": {description: Unauthenticated}, "400": {description: VALIDATION_ERROR / INVALID_PAGINATION}}
+  /users/{profile_id}:
+    patch:
+      tags: [users]
+      summary: Admin edit user role/is_active/manager (never self, never last SUPER_ADMIN)
+      parameters: [{in: path, name: profile_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "409": {description: Last super admin}}
+  /notifications:
+    get:
+      tags: [users]
+      summary: My notifications (unread=1 to filter, since=ISO to poll increments)
+      description: since (ISO date or datetime) returns only newer rows — the FE 60 s poll uses it.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: unread, schema: {type: string, enum: ["1", "true", "yes"]}}
+        - {in: query, name: since, schema: {type: string}, description: "ISO date/datetime; only newer rows"}
+      responses:
+        "401": {description: Unauthenticated}
+        "200": {description: Notifications + unread_count}
+        "400": {description: "INVALID_PAGINATION / INVALID_DATE"}
+  /notifications/{notification_id}/read:
+    post:
+      tags: [users]
+      summary: Mark one notification read (own only)
+      parameters: [{in: path, name: notification_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Marked}}
+  /notifications/read-all:
+    post:
+      tags: [users]
+      summary: Mark all my notifications read
+      responses: {"200": {description: Marked}}
+  /campus/tree:
+    get:
+      tags: [campus]
+      summary: Colleges -> blocks -> floors -> rooms tree plus departments (VIEW_ASSET)
+      responses: {"200": {description: Campus tree}, "401": {description: Unauthenticated}}
+  /campus/import:
+    post:
+      tags: [campus]
+      summary: Bulk campus CSV import (IMPORT_DATA); one transaction, full rollback on failure
+      parameters:
+        - {in: query, name: dry_run, schema: {type: boolean, default: false, description: Validate and report without writing}}
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+                dry_run: {type: string}
+      responses:
+        "201": {description: Import report with counts}
+        "400": {description: Invalid or non-CSV file}
+        "413": {description: File exceeds 10 MB}
+  /campus/blocks:
+    post:
+      tags: [campus]
+      summary: Create block (MANAGE_CAMPUS)
+      responses: {"201": {description: Created}, "400": {description: Invalid payload or unknown college_id}, "409": {description: Duplicate id or name}}
+  /campus/blocks/{block_id}:
+    patch:
+      tags: [campus]
+      summary: Update block (MANAGE_CAMPUS)
+      parameters: [{in: path, name: block_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "400": {description: Invalid payload or unknown college_id}, "404": {description: Not found}}
+    delete:
+      tags: [campus]
+      summary: Delete block (MANAGE_CAMPUS); 409 while it still has floors
+      parameters: [{in: path, name: block_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Deleted}, "409": {description: Block still has floors}}
+  /campus/blocks/{block_id}/layout:
+    patch:
+      tags: [campus]
+      summary: Save block layout JSON (MANAGE_CAMPUS; object-only, 256 KB cap, depth-limited)
+      parameters: [{in: path, name: block_id, required: true, schema: {type: string}}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                layout: {type: object, additionalProperties: true}
+      responses: {"200": {description: Layout saved}, "400": {description: Invalid layout}}
+  /campus/blocks/{block_id}/photos:
+    post:
+      tags: [campus]
+      summary: Upload block photo to the private storage bucket (MANAGE_CAMPUS; png/jpg/webp, 5 MB)
+      parameters: [{in: path, name: block_id, required: true, schema: {type: string}}]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        "201": {description: Stored photo metadata with a signed read URL}
+        "503": {description: Photo storage not configured on the server}
+  /campus/blocks/{block_id}/photos/{photo_id}:
+    delete:
+      tags: [campus]
+      summary: Delete a block photo (MANAGE_CAMPUS); storage cleanup is best-effort
+      parameters:
+        - {in: path, name: block_id, required: true, schema: {type: string}}
+        - {in: path, name: photo_id, required: true, schema: {type: string}}
+      responses: {"200": {description: Deleted}, "404": {description: Not found}}
+  /campus/floors:
+    post:
+      tags: [campus]
+      summary: Create floor (MANAGE_CAMPUS)
+      responses: {"201": {description: Created}, "400": {description: Invalid block}, "409": {description: Duplicate id or name}}
+  /campus/floors/{floor_id}:
+    patch:
+      tags: [campus]
+      summary: Update floor (MANAGE_CAMPUS)
+      parameters: [{in: path, name: floor_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      tags: [campus]
+      summary: Delete floor (MANAGE_CAMPUS); 409 while it still has rooms
+      parameters: [{in: path, name: floor_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Deleted}, "409": {description: Floor still has rooms}}
+  /campus/rooms:
+    post:
+      tags: [campus]
+      summary: Create room (MANAGE_CAMPUS)
+      responses: {"201": {description: Created}, "400": {description: Invalid floor or department}}
+  /campus/rooms/{room_id}:
+    patch:
+      tags: [campus]
+      summary: Update room (MANAGE_CAMPUS)
+      parameters: [{in: path, name: room_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      tags: [campus]
+      summary: Delete room (MANAGE_CAMPUS); 409 while ACs are assigned to it
+      parameters: [{in: path, name: room_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Deleted}, "409": {description: Room still has AC assets}}
+  /campus/departments:
+    post:
+      tags: [campus]
+      summary: Create department (MANAGE_CAMPUS)
+      responses: {"201": {description: Created}, "409": {description: Duplicate id or name}}
+  /campus/departments/{department_id}:
+    patch:
+      tags: [campus]
+      summary: Rename department (MANAGE_CAMPUS)
+      parameters: [{in: path, name: department_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      tags: [campus]
+      summary: Delete department (MANAGE_CAMPUS); 409 while rooms still reference it
+      parameters: [{in: path, name: department_id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Deleted}, "409": {description: Rooms still reference it}}
+  /campus/location/review:
+    get:
+      tags: [campus]
+      summary: >-
+        Assets whose source location text has no confirmed id yet (MANAGE_CAMPUS)
+        — the Location review queue: nested location payload per row with the
+        preserved source and per-field statuses
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - {in: query, name: level, schema: {type: string, enum: [college, block, floor, department, room]}}
+      responses:
+        "200": {description: Review page (asset page shape with nested location)}
+        "400": {description: INVALID_LEVEL or INVALID_PAGINATION}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing MANAGE_CAMPUS}
+        "500": {description: LOCATION_REVIEW_FAILED}
+  /campus/location/aliases:
+    get:
+      tags: [campus]
+      summary: List location aliases (MANAGE_CAMPUS); active only unless include_inactive
+      parameters:
+        - {in: query, name: entity_type, schema: {type: string, enum: [college, block, floor, department, room]}}
+        - {in: query, name: q, schema: {type: string, description: Substring match on the alias text}}
+        - {in: query, name: include_inactive, schema: {type: boolean, default: false}}
+      responses:
+        "200": {description: Alias list (capped at 500)}
+        "400": {description: INVALID_LEVEL}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing MANAGE_CAMPUS}
+    post:
+      tags: [campus]
+      summary: >-
+        Create or reactivate one alias — text variant to exactly one canonical
+        entity (MANAGE_CAMPUS); an active alias pointing elsewhere is 409, never
+        silently repointed
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entity_type, entity_id, alias]
+              properties:
+                entity_type: {type: string, enum: [college, block, floor, department, room]}
+                entity_id: {type: string}
+                alias: {type: string, maxLength: 200}
+      responses:
+        "201": {description: "Alias created (includes matching_review_rows: review rows this alias will finish)"}
+        "200": {description: "Existing identical alias or reactivated alias (includes matching_review_rows)"}
+        "400": {description: Invalid payload or unknown entity_id}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing MANAGE_CAMPUS}
+        "409": {description: ALIAS_EXISTS — active alias points at a different entity}
+  /campus/location/aliases/{alias_id}:
+    delete:
+      tags: [campus]
+      summary: >-
+        Deactivate an alias (MANAGE_CAMPUS; soft delete — the resolver directory
+        only loads active rows, so it stops matching immediately)
+      parameters: [{in: path, name: alias_id, required: true, schema: {type: integer}}]
+      responses:
+        "200": {description: Deactivated}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing MANAGE_CAMPUS}
+        "404": {description: ALIAS_NOT_FOUND}
+  /campus/location/re-resolve:
+    post:
+      tags: [campus]
+      summary: >-
+        Re-run the centralized resolver over stored source values
+        (MANAGE_CAMPUS); batch-limited and idempotent — a second run reports
+        updated 0, manual pins are never touched, rows keep their own source_ref
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: {type: integer, minimum: 1, maximum: 2000, default: 500}
+      responses:
+        "200": {description: Counts — scanned and updated}
+        "400": {description: limit out of range}
+        "401": {description: Unauthenticated}
+        "403": {description: Missing MANAGE_CAMPUS}
+        "500": {description: LOCATION_RE_RESOLVE_FAILED}

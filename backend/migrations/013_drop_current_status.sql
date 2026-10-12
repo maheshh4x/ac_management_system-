@@ -1,0 +1,16 @@
+-- 013: retire the legacy free-text status column (Phase 8.6 cleanup).
+--
+-- Migration 007 added operational_status with a backfill from this column and
+-- kept both in step on every write, "until P8". Nothing reads or writes
+-- acs.current_status any more: list/detail/QR selects, the ?status= filter
+-- fallback and the chat queries all use the constrained operational_status
+-- vocabulary, and every write derives it from the accepted API/CSV input via
+-- app.services.status_map. The free text itself is redundant.
+--
+-- Forward-only by design (the runner has no down path): restoring the column
+-- would mean a new additive migration that re-derives a normalised value from
+-- operational_status — the original wording is gone by construction either way.
+--
+-- idx_acs_status (002, single-column) is dropped by PostgreSQL together with
+-- the column; idx_acs_operational_status (007) is the filter index in use.
+ALTER TABLE acs DROP COLUMN IF EXISTS current_status;

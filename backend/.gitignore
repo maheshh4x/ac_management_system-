@@ -1,0 +1,25 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Spreadsheets hold student/internship + asset data (never commit them).
+# The Phase 8 security review flags the un-ignore'd file already in the repo:
+# `git rm --cached "backend/*.xlsx"` before the baseline commit.
+*.xlsx

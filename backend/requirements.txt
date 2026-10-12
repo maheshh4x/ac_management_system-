@@ -1,0 +1,28 @@
+blinker==1.9.0
+click==8.5.0
+Flask==3.1.3
+flask-cors==6.0.0
+openpyxl==3.1.5
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+# Industrial upgrade (Plan #23 auth/QR/validation/observability/tests)
+# PyJWT 2.15.0 — Phase 8.3 pip-audit: 17 advisories fixed through 2.15.0.
+PyJWT[crypto]==2.15.0
+pydantic==2.11.7
+qrcode==7.4.2
+# Pillow 12.3.0 — Phase 8.3 pip-audit: 18 advisories fixed through 12.3.0
+# (used by qrcode to rasterise labels; the app never decodes untrusted images).
+Pillow==12.3.0
+sentry-sdk==2.18.0
+# Phase 1 hardening
+cryptography>=43.0.0
+# Werkzeug is Flask's request/response layer — pinned explicitly so the
+# Phase 8.3 audit result (CVE-2026-102598 fixed in 3.1.9) can't drift back.
+Werkzeug==3.1.9
+flask-limiter==3.12
+redis>=5,<7
+python-json-logger>=3.2,<4
+PyYAML>=6.0.2
+gunicorn==23.0.0; sys_platform != "win32"
+# Phase 6 (QR): printable A4 label sheets — GET /api/v1/assets/qr/batch
+reportlab>=4.0
