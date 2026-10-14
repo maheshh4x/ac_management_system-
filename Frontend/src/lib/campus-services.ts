@@ -7,7 +7,7 @@
  * (react-query mutations in lib/api/campus.ts).
  */
 import { Building, Department, Floor, Room, AC } from './types/campus';
-import { api, type Paginated } from './api/client';
+import { api, apiList } from './api/client';
 import { mapAsset, type ApiAsset } from './adapters/asset';
 import type { DashboardSummary } from './api/assets';
 import type { CampusBlock, CampusFloor, CampusRoom, CampusTree } from './api/campus';
@@ -78,6 +78,30 @@ export function toRoom(room: CampusRoom): Room {
   };
 }
 
+/**
+ * Building id for a floor id via the cached campus tree (D4-safe).
+ * Block ids are college-scoped since the normalization program
+ * (`BLOCK-<COLLEGE>-<NAME>`), so dash-segment surgery
+ * (`id.split('-').slice(0, 2)`) no longer derives the parent — look the
+ * floor up instead. Falls back to the legacy derivation when the floor is
+ * absent from the tree (offline/stale cache), preserving old behavior.
+ */
+export async function blockIdForFloorId(floorId: string): Promise<string> {
+  const legacy = floorId.split('-').slice(0, 2).join('-');
+  if (!floorId) return legacy;
+  try {
+    const tree = await fetchCampusTree();
+    for (const block of allBlocks(tree)) {
+      if ((block.floors ?? []).some((floor) => floor.floor_id === floorId)) {
+        return block.block_id;
+      }
+    }
+  } catch {
+    /* fall through to legacy */
+  }
+  return legacy;
+}
+
 function flattenFloors(tree: CampusTree): { floor: CampusFloor; block: CampusBlock }[] {
   return allBlocks(tree).flatMap(block => (block.floors ?? []).map(floor => ({ floor, block })));
 }
@@ -133,7 +157,11 @@ export const getRooms = async (floorId: string): Promise<Room[]> => {
 
 export const getACs = async (roomId: string): Promise<AC[]> => {
   if (!roomId) return [];
-  const page = await api<Paginated<ApiAsset>>(
+  // Paginated envelope contract (app/core `paginated()`): `data` IS the items
+  // array and `pagination` is a sibling key — apiList() is the helper that
+  // wraps that shape. `api()` would return the bare array and `.items` would
+  // be undefined.
+  const page = await apiList<ApiAsset>(
     `/api/v1/assets?room=${encodeURIComponent(roomId)}&page_size=100`,
   );
   return page.items.map(mapAsset);
@@ -153,7 +181,11 @@ export const searchAssets = async (query: string): Promise<{
   if (!lowerQuery) return { acs: [], buildings: [], rooms: [] };
 
   const [assetPage, buildings, rooms] = await Promise.all([
-    api<Paginated<ApiAsset>>(
+    // `apiList` unwraps the paginated envelope (`data` = array, `pagination`
+    // sibling — see backend app/core/__init__.py `paginated()`). Using
+    // `api<Paginated<>>` here returned the bare array, so `.items` was
+    // undefined and `.map` threw on every keystroke (P2 regression fix).
+    apiList<ApiAsset>(
       `/api/v1/assets?search=${encodeURIComponent(lowerQuery)}&page_size=20`,
     ),
     getBuildings(),

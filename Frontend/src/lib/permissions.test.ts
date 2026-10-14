@@ -17,6 +17,7 @@ import {
   canEditInventory,
   canEditProfile,
   canManageMaintenance,
+  canRecordSession,
   canUploadMaintenanceUpdates,
   getCurrentUserRole,
   hasPermission,
@@ -42,6 +43,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "MANAGE_USERS",
   "VIEW_AUDIT_LOGS",
   "MANAGE_SETTINGS",
+  "RECORD_USAGE_SESSION",
 ];
 
 /** The table, written out independently of the implementation. */
@@ -55,9 +57,16 @@ const EXPECTED: Record<Role, Permission[]> = {
     "APPROVE_MOVEMENT",
     "COMPLETE_MOVEMENT",
     "VIEW_REPORTS",
+    "RECORD_USAGE_SESSION",
   ],
-  TECHNICIAN: ["VIEW_AC", "CREATE_MOVEMENT_REQUEST", "COMPLETE_MOVEMENT", "MANAGE_MAINTENANCE"],
-  VIEWER: ["VIEW_AC"],
+  TECHNICIAN: [
+    "VIEW_AC",
+    "CREATE_MOVEMENT_REQUEST",
+    "COMPLETE_MOVEMENT",
+    "MANAGE_MAINTENANCE",
+    "RECORD_USAGE_SESSION",
+  ],
+  VIEWER: ["VIEW_AC", "RECORD_USAGE_SESSION"],
 };
 
 describe("hasPermission", () => {
@@ -99,6 +108,19 @@ describe("hasPermission", () => {
     expect(hasPermission("FACILITY_MANAGER", "COMPLETE_MOVEMENT")).toBe(true);
     expect(hasPermission("TECHNICIAN", "COMPLETE_MOVEMENT")).toBe(true);
     expect(hasPermission("VIEWER", "COMPLETE_MOVEMENT")).toBe(false);
+  });
+
+  it("grants RECORD_USAGE_SESSION to all authenticated roles (ledger-only, never viewers excluded)", () => {
+    expect(hasPermission("SUPER_ADMIN", "RECORD_USAGE_SESSION")).toBe(true);
+    expect(hasPermission("FACILITY_MANAGER", "RECORD_USAGE_SESSION")).toBe(true);
+    expect(hasPermission("TECHNICIAN", "RECORD_USAGE_SESSION")).toBe(true);
+    expect(hasPermission("VIEWER", "RECORD_USAGE_SESSION")).toBe(true);
+    expect(hasPermission(null, "RECORD_USAGE_SESSION")).toBe(false);
+    expect(canRecordSession("SUPER_ADMIN")).toBe(true);
+    expect(canRecordSession("FACILITY_MANAGER")).toBe(true);
+    expect(canRecordSession("TECHNICIAN")).toBe(true);
+    expect(canRecordSession("VIEWER")).toBe(true);
+    expect(canRecordSession(null)).toBe(false);
   });
 });
 

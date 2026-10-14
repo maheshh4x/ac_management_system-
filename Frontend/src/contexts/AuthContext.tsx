@@ -32,6 +32,7 @@ import {
 } from '@/lib/adapters/user';
 import { setAuthSnapshot, type Role } from '@/lib/permissions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { getSafeNext } from '@/lib/redirect';
 
 export interface User {
   id: string;
@@ -57,12 +58,19 @@ interface AuthContextType {
   user: User | null;
   status: AccountStatus | null;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, next?: string | null) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<{ needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   /** Self-service profile edit (whitelisted fields only). */
   updateSession: (patch: Partial<User>) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /**
+   * Compatibility path for accounts created before automatic onboarding:
+   * re-running registration completes a never-reviewed PENDING row in place
+   * (server upgrades it), then reloads the profile. REJECTED rows and
+   * reviewed rows are returned untouched.
+   */
+  finalizeOnboarding: () => Promise<void>;
 }
 
 export interface SignUpInput {
@@ -78,7 +86,7 @@ export interface SignUpInput {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /** Roles a signup may request (the server validates again and always grants VIEWER). */
-const VALID_REQUESTABLE_ROLES = ['SUPER_ADMIN', 'FACILITY_MANAGER', 'TECHNICIAN', 'VIEWER'] as const;
+const VALID_REQUESTABLE_ROLES = ['TECHNICIAN', 'VIEWER'] as const;
 
 export function roleHome(role: Role | null | undefined): string {
   switch (role) {
@@ -121,6 +129,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     null,
   );
   const loadedSessionToken = useRef<string | null>(null);
+  // Access token that hard-failed /me authentication (backend 401). Further
+  // /me attempts for the SAME token are suppressed: without this, every
+  // TOKEN_REFRESHED event, query poll and remount re-requests /me, refreshes
+  // at Supabase (which succeeds), retries, and 401s again — the repeated-401
+  // storm. A DIFFERENT token (real refresh / account switch) or an explicit
+  // force still reaches the server; success clears the marker.
+  const failedToken = useRef<string | null>(null);
   const userRef = useRef<User | null>(null);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- mirror for event callbacks that must return the current user
@@ -174,6 +189,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = opts?.token ?? null;
     const force = opts?.force ?? false;
     if (!force && token !== null && loadedSessionToken.current === token) return userRef.current;
+    // Same token already proven dead against /me: do not re-request it.
+    // (force bypasses for explicit user action; success clears the marker.)
+    if (!force && token !== null && failedToken.current === token) return userRef.current;
     // Join an identical in-flight fetch (force only bypasses the
     // same-session suppression above — a joined fetch still reaches the
     // server exactly once for all of its callers).
@@ -190,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(mapped);
         setAuthSnapshot(mapped.role ?? null);
         loadedSessionToken.current = token;
+        failedToken.current = null;
         return mapped;
       } catch (err) {
         if (
@@ -201,6 +220,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           loadedSessionToken.current = null;
           await getSupabaseBrowserClient().auth.signOut();
           throw err;
+        }
+        if (
+          err instanceof ApiError &&
+          (err.status === 401 || err.code === 'INVALID_TOKEN' || err.code === 'TOKEN_EXPIRED')
+        ) {
+          // Hard authentication failure for THIS token (backend rejects it):
+          // the session is dead server-side, so end it once instead of
+          // letting every event/poll/remount retry /me with the same token.
+          // 403s and network/5xx errors never land here — valid sessions
+          // survive unrelated API failures.
+          failedToken.current = token;
+          setUser(null);
+          setAuthSnapshot(null);
+          loadedSessionToken.current = null;
+          await getSupabaseBrowserClient().auth.signOut();
         }
         throw err;
       }
@@ -261,6 +295,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_OUT' || !session) {
         registrationAttempted.current = false;
         loadedSessionToken.current = null;
+        // failedToken is intentionally NOT cleared here: the hard-failure
+        // path signs out and marks the dead token in the same tick, and the
+        // SIGNED_OUT event must not resurrect it. Fresh sign-ins clear the
+        // marker explicitly; explicit signOut() clears it directly.
         setUser(null);
         setAuthSnapshot(null);
         return;
@@ -281,7 +319,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [bootstrap, loadProfile]);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, next?: string | null) => {
+      // Fresh credential attempt: a previous dead token must not suppress it.
+      failedToken.current = null;
       const supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
@@ -303,7 +343,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.push('/pending');
         return;
       }
-      router.replace(roleHome(profile.role));
+      // QR-scan workflow: return to the originally requested page when it is
+      // a safe same-origin app path; otherwise fall back to the role home.
+      router.replace(getSafeNext(next) ?? roleHome(profile.role));
     },
     [loadProfile, router],
   );
@@ -353,6 +395,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await getSupabaseBrowserClient().auth.signOut();
     registrationAttempted.current = false;
     loadedSessionToken.current = null;
+    failedToken.current = null;
     setUser(null);
     setAuthSnapshot(null);
     router.push('/login');
@@ -381,6 +424,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadProfile({ token: session?.access_token ?? null, force: true });
   }, [loadProfile]);
 
+  const finalizeOnboarding = useCallback(async () => {
+    await api<ApiProfile>('/api/v1/auth/register-profile', { method: 'POST', body: {} });
+    await refreshProfile();
+  }, [refreshProfile]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -392,6 +440,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         updateSession,
         refreshProfile,
+        finalizeOnboarding,
       }}
     >
       {children}

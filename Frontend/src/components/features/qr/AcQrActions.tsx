@@ -14,6 +14,7 @@ import {
 } from '@/lib/qr-service';
 import { downloadQrLabel, type QrLabelFields } from '@/lib/qr-label';
 import { effectiveLocationText } from '@/lib/adapters/asset';
+import { canEditInventory, hasPermission } from '@/lib/permissions';
 import type { ExtendedAC } from '@/lib/types/asset';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -39,13 +40,18 @@ function describeError(err: unknown): string {
 }
 
 /**
- * QR panel for one asset (SUPER_ADMIN). QR images/PDFs are minted on
- * demand by the backend (GET /assets/<ref>/qr, POST .../qr/regenerate,
- * GET /assets/qr/batch) — there is no mock status store any more: the
- * code always exists, and regenerating only re-issues the label.
+ * QR panel for one asset. QR images/PDFs are minted on demand by the
+ * backend (GET /assets/<ref>/qr, POST .../qr/regenerate, GET
+ * /assets/qr/batch) — there is no mock status store: the code always
+ * exists, and regenerating only re-issues the label.
+ *
+ * Visibility: every authenticated role may view and download the code
+ * (backend requires VIEW_ASSET, which all roles hold). Regenerate renders
+ * only for editors (EDIT_ASSET is enforced server-side regardless).
  */
 export function AcQrActions({ acId, batchIds, asset }: AcQrActionsProps) {
   const { user } = useAuth();
+  const canRegenerate = canEditInventory(user?.role ?? null) || hasPermission(user?.role ?? null, 'EDIT_AC');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [payload, setPayload] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -169,10 +175,9 @@ export function AcQrActions({ acId, batchIds, asset }: AcQrActionsProps) {
     }
   };
 
-  // SUPER_ADMIN-only surface (existing UI gate, kept).
-  if (user?.role !== 'SUPER_ADMIN') {
-    return null;
-  }
+  // Regenerate is an EDIT_ASSET action server-side; the button renders for
+  // editors only, everyone else still sees and downloads the code.
+  const showRegenerate = canRegenerate;
 
   return (
     <div className="mt-4 flex flex-col gap-3 pt-3 border-t border-slate-100 relative">
@@ -254,14 +259,16 @@ export function AcQrActions({ acId, batchIds, asset }: AcQrActionsProps) {
               {busy === 'print' ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
               Print
             </button>
-            <button
-              onClick={handleRegenerate}
-              disabled={busy !== null}
-              className="flex items-center justify-center p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-              title="Regenerate label (the code itself never changes)"
-            >
-              {busy === 'regen' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            </button>
+            {showRegenerate && (
+              <button
+                onClick={handleRegenerate}
+                disabled={busy !== null}
+                className="flex items-center justify-center p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                title="Regenerate label (the code itself never changes)"
+              >
+                {busy === 'regen' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              </button>
+            )}
           </div>
           <span className="text-[10px] text-slate-400 font-medium px-1 flex items-center gap-1">
             <QrCode size={11} /> Stable code — printed stickers keep working after a re-issue.

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { ShieldCheck, Mail, Lock, LogIn } from 'lucide-react';
 import { ApiError } from '@/lib/api/client';
+import { nextFromLocation } from '@/lib/redirect';
 import { TwinOrbit } from '@/components/ui/TwinOrbit';
 
 export default function LoginPage() {
@@ -19,8 +20,11 @@ export default function LoginPage() {
     setError('');
     setIsSubmitting(true);
     try {
-      await signIn(email, password);
-      // signIn routes by role; pending/rejected accounts go to /pending.
+      // QR-scan workflow: ?next= (set by the edge proxy or the public QR
+      // landing) is restored after login when it is a safe app path.
+      await signIn(email, password, nextFromLocation());
+      // signIn routes by role (or the restored destination); pending/rejected
+      // accounts go to /pending.
     } catch (err) {
       if (err instanceof ApiError && err.code === 'AUTH_NOT_CONFIGURED') {
         setError('Sign-in is unavailable: the server authentication is not configured.');

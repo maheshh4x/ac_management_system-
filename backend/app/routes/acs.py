@@ -607,8 +607,12 @@ def _derive_ac_id(room_id, unit_number=None, serial_number=None, location_ref=No
     AC-<room_id>-S<serial_number> (serial fallback)
     AC-<room_id>                  (room-sole-unit fallback)
     For unassigned assets (no resolvable room) the deterministic location
-    token is derived from the resolved block/department reference:
-    AC-<block>-<dept>-Uâ€¦ / -Sâ€¦ / bare.
+    token is derived from the source college/block/department reference plus
+    every present sub-component (floor, room type, room number — see
+    ``assets_import._pending_identity`` for the canonical shape) and the
+    unit/serial discriminator:
+    AC-LOC-<college>-<block>-<dept>[-F-<floor>][-T-<type>][-R-<room>]
+    [-U<unit>][-S<serial>].
     """
     location = room_id if room_id else f"LOC-{_text_id(location_ref or 'UNSCOPED')}"
     unit = _text_id(unit_number) if _empty_to_none(unit_number) else None

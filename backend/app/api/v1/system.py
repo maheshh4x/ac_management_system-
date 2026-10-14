@@ -261,15 +261,17 @@ def dashboard_summary():
             # bid NULL under their imported text.
             block_k_sql = location_sql.label_or("block", "'Unassigned'")
             block_id_sql = "b.block_id"
+            # D2: manufacturer variants share one fold bucket (MIN display).
+            company_sel, company_grp = _dim_select("company")
             dim_legs = [
                 # (section, k, v, n, bid) — v carries the numeric capacity legs.
                 # Ordinals: section=1, k=2, v=3, n=4, bid=5.
                 f"(SELECT 1 AS section, a.operational_status AS k,"
                 f" NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid {JOINS} WHERE {where_sql}"
                 " GROUP BY 2 ORDER BY n DESC LIMIT 20)",
-                f"(SELECT 2 AS section, COALESCE(a.ac_make_company, 'Unknown') AS k,"
+                f"(SELECT 2 AS section, {company_sel} AS k,"
                 f" NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid {JOINS} WHERE {where_sql}"
-                " GROUP BY 2 ORDER BY n DESC LIMIT 20)",
+                f" GROUP BY {company_grp} ORDER BY n DESC LIMIT 20)",
                 f"(SELECT 3 AS section, COALESCE(a.ac_type, 'Other') AS k,"
                 f" NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid {JOINS} WHERE {where_sql}"
                 " GROUP BY 2 ORDER BY n DESC LIMIT 20)",
@@ -389,6 +391,22 @@ _ANALYTICS_DIMS = {
     "status": "a.operational_status",
 }
 
+
+def _dim_select(dim: str) -> tuple[str, str]:
+    """(SELECT expression, GROUP BY expression) for one analytics dimension.
+
+    D2 (fold at read/group): the company dimension groups case/whitespace
+    variants under one match-key fold while displaying the alphabetically
+    first stored spelling (MIN) — stored values are never rewritten and the
+    response shape is unchanged. Every other dimension selects and groups by
+    the same expression, i.e. byte-identical behavior to before.
+    """
+    expr = _ANALYTICS_DIMS[dim]
+    if dim == "company":
+        return f"MIN({expr})", location_sql.fold_sql(expr)
+    return expr, expr
+
+
 _ANALYTICS_MEASURES = ("count", "avg_age", "total_capacity")
 
 # Dims whose NULL bucket is meaningless on a chart axis (a year axis with a
@@ -502,11 +520,13 @@ def dashboard_analytics():
             )
             install_by_year = [{"year": r["year"], "count": r["n"]} for r in cur.fetchall()]
 
+            # D2: manufacturer variants share one fold bucket (MIN display).
+            company_sel, company_grp = _dim_select("company")
             cur.execute(
-                f"SELECT {_ANALYTICS_DIMS['company']} AS company,"
+                f"SELECT {company_sel} AS company,"
                 " a.installation_year AS year, COUNT(*) AS n"
                 f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
-                " GROUP BY 1, 2 ORDER BY 2, 1 LIMIT 1000",
+                f" GROUP BY {company_grp}, 2 ORDER BY 2, 1 LIMIT 1000",
                 tuple(params),
             )
             company_by_year = [
@@ -593,11 +613,15 @@ def dashboard_analytics():
                         col = "a.installation_year" if dim == "year" else "a.ac_capacity_ton"
                         extra.append(f"{col} IS NOT NULL")
                 predicate = " AND ".join([where_sql, *extra])
+                # D2: company explorer buckets fold variants (MIN display);
+                # every other dim selects and groups by the same expression.
+                sel1, grp1 = _dim_select(dim1)
                 if dim2 is not None:
+                    sel2, grp2 = _dim_select(dim2)
                     cur.execute(
-                        f"SELECT {_ANALYTICS_DIMS[dim1]} AS d1, {_ANALYTICS_DIMS[dim2]} AS d2,"
+                        f"SELECT {sel1} AS d1, {sel2} AS d2,"
                         f" {value_sql} {JOINS} WHERE {predicate}"
-                        " GROUP BY 1, 2 ORDER BY 1, 2 LIMIT 2000",
+                        f" GROUP BY {grp1}, {grp2} ORDER BY 1, 2 LIMIT 2000",
                         tuple(params),
                     )
                     rows = [
@@ -606,9 +630,9 @@ def dashboard_analytics():
                     ]
                 else:
                     cur.execute(
-                        f"SELECT {_ANALYTICS_DIMS[dim1]} AS d1, {value_sql}"
+                        f"SELECT {sel1} AS d1, {value_sql}"
                         f" {JOINS} WHERE {predicate}"
-                        " GROUP BY 1 ORDER BY 1 LIMIT 500",
+                        f" GROUP BY {grp1} ORDER BY 1 LIMIT 500",
                         tuple(params),
                     )
                     rows = [

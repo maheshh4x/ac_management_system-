@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, AlertOctagon, Wrench, PowerOff,
   MapPin, Calendar, User, Star, Zap, Building2, Tag,
   ClipboardList, Activity, Shield, FileText, Edit3, Save, X,
-  ChevronRight, Clock, AlertTriangle, Info, RefreshCw, MoveRight, QrCode
+  ChevronRight, Clock, AlertTriangle, RefreshCw, MoveRight, QrCode
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -20,6 +20,9 @@ import { useJobs } from '@/lib/api/maintenance';
 import { useAuth } from '@/contexts/AuthContext';
 import { canEditInventory, hasPermission } from '@/lib/permissions';
 import { AcQrActions } from '@/components/features/qr/AcQrActions';
+import { OutdoorUnitQrCard } from '@/components/features/assets/OutdoorUnitQrCard';
+import { AssetEnergyPanel } from '@/components/features/assets/AssetEnergyPanel';
+import { ReportIssueModal } from '@/components/features/issues/ReportIssueModal';
 
 interface InfoCardProps {
   label: string;
@@ -110,6 +113,7 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
   const [editedFields, setEditedFields] = useState<Partial<ExtendedAC>>({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
   // Maintenance jobs for this unit (business key — the route param may be a
   // UUID while work orders filter on the AC-… asset code).
@@ -320,17 +324,30 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
             </div>
           </div>
 
-          {/* Asset QR (reuses AcQrActions: preview + branded download + sheet
-              + regenerate; the panel self-gates to permitted roles and the
-              backend enforces every action — the card only renders where the
-              panel does, so nobody sees an empty card) */}
-          {user?.role === 'SUPER_ADMIN' && (
+          {/* Asset QR — Indoor Unit (existing code, unchanged identity).
+              Visible to every authenticated role (backend requires VIEW_ASSET,
+              which all roles hold); regenerate stays editor-gated inside. */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-xs font-bold uppercase text-slate-400 mb-3 flex items-center gap-1.5">
-              <QrCode size={13} /> Asset QR
+            <h3 className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center gap-1.5">
+              <QrCode size={13} /> Asset QR · Indoor Unit
             </h3>
             <AcQrActions acId={ac.acId ?? ac.id} asset={ac} />
           </div>
+
+          {/* Outdoor Unit QR (Feature A): a distinct code for the linked
+              outdoor row — never a copy of the indoor code. Nulls render the
+              explicit not-linked state, never a fabricated QR. */}
+          <OutdoorUnitQrCard ac={ac} canEdit={canEdit} onLink={() => setIsEditing(true)} />
+
+          {/* Report Issue — every authorized role (Feature B) */}
+          <button
+            onClick={() => setShowReport(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm w-full"
+          >
+            <AlertTriangle size={14} /> Report Issue
+          </button>
+          {showReport && (
+            <ReportIssueModal acId={ac.acId ?? ac.id} onClose={() => setShowReport(false)} />
           )}
 
           {/* Actions (Admin only) */}
@@ -548,35 +565,7 @@ export function ACDetailView({ acId, backHref = '..' }: ACDetailViewProps) {
           {/* Tab 2: Energy Usage */}
           {activeTab === 2 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                <div className="flex items-start gap-4 mb-6">
-                  <div className="p-3 bg-amber-50 rounded-xl text-amber-600"><Zap size={22} /></div>
-                  <div>
-                    <h3 className="font-bold text-slate-900">Energy Consumption</h3>
-                    <p className="text-sm text-slate-500 mt-0.5">Live kWh energy telemetry for this unit</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
-                    <div className="text-2xl font-bold text-slate-400">—</div>
-                    <div className="text-xs text-slate-500 mt-1 font-semibold">Daily kWh</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
-                    <div className="text-2xl font-bold text-slate-400">—</div>
-                    <div className="text-xs text-slate-500 mt-1 font-semibold">Monthly kWh</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
-                    <div className="text-2xl font-bold text-slate-400">—</div>
-                    <div className="text-xs text-slate-500 mt-1 font-semibold">Estimated Monthly Cost</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700">
-                  <Info size={16} className="mt-0.5 shrink-0" />
-                  <div>
-                    <span className="font-bold">IoT Smart Meter Required:</span> Granular energy consumption data (kWh per unit) requires IoT smart energy meters installed per AC circuit. This field will populate automatically once hardware telemetry is available. Estimated connected load based on rated power: <strong>{ac.powerRating || 'N/A'}</strong>.
-                  </div>
-                </div>
-              </div>
+              <AssetEnergyPanel acId={acId} powerRating={ac.powerRating} />
             </motion.div>
           )}
 

@@ -41,6 +41,87 @@ def test_anon_key_is_not_picked_up_as_secret(monkeypatch):
     assert jwt_mod.auth_configured() is False
 
 
+# ── JWKS (asymmetric) verification path ─────────────────────────────────────
+# Production uses ES256 Supabase tokens verified against the project's JWKS
+# (no shared secret). These tests prove the mechanism with a generated EC
+# key: a correctly-signed token verifies, a foreign key does not.
+
+
+def _es256_token(monkeypatch, private_pem: str, kid: str = "test-kid"):
+    import time
+
+    import jwt as pyjwt
+
+    now = int(time.time())
+    return pyjwt.encode(
+        {
+            "sub": "11111111-1111-1111-1111-111111111111",
+            "aud": "authenticated",
+            "iss": "https://unit-test.supabase.co/auth/v1",
+            "iat": now - 10,
+            "exp": now + 3600,
+            "app_metadata": {"role": "VIEWER"},
+        },
+        private_pem,
+        algorithm="ES256",
+        headers={"kid": kid},
+    )
+
+
+def _stub_jwks(monkeypatch, public_pem: str):
+    from app.auth import jwt as jwt_mod
+
+    for var in ("SUPABASE_JWT_SECRET", "JWT_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://unit-test.supabase.co")
+
+    class _Key:
+        key = public_pem
+
+    class _Provider:
+        def signing_key(self, token):
+            return _Key()
+
+    monkeypatch.setattr(jwt_mod, "_get_jwks_provider", lambda: _Provider())
+    jwt_mod.reset_caches()
+
+
+def _gen_ec_key():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    private = ec.generate_private_key(ec.SECP256R1())
+    private_pem = private.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    public_pem = (
+        private.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    return private_pem, public_pem
+
+
+def test_jwks_es256_token_verifies(secret_client, monkeypatch):
+    private_pem, public_pem = _gen_ec_key()
+    _stub_jwks(monkeypatch, public_pem)
+    token = _es256_token(monkeypatch, private_pem)
+    claims = jwt_mod._verify_token(token)
+    assert claims["aud"] == "authenticated"
+
+
+def test_jwks_foreign_key_rejected(secret_client, monkeypatch):
+    _, public_pem = _gen_ec_key()
+    other_private, _ = _gen_ec_key()
+    _stub_jwks(monkeypatch, public_pem)
+    import jwt as pyjwt
+
+    with pytest.raises(pyjwt.InvalidTokenError):
+        jwt_mod._verify_token(_es256_token(monkeypatch, other_private))
+
+
 # ── fail closed: no verification key configured ─────────────────────────────
 
 

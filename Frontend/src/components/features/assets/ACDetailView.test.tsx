@@ -307,19 +307,28 @@ describe("ACDetailView — visual asset ID", () => {
   });
 });
 
-describe("ACDetailView — asset QR card", () => {  it("shows no QR surface without a permitted role", async () => {
+describe("ACDetailView — asset QR cards", () => {
+  it("shows indoor and outdoor QR surfaces to every authorized role (regenerate stays editor-only)", async () => {
+    authState.user = { role: "VIEWER" };
     renderDetail();
 
     await screen.findByText("Main Academic Block");
-    expect(screen.queryByText("Asset QR")).toBeNull();
-    expect(screen.queryByText("Download QR")).toBeNull();
+    expect(await screen.findByText(/Asset QR · Indoor Unit/)).toBeTruthy();
+    expect(await screen.findByText("Download QR")).toBeTruthy();
+    // No linked outdoor row in the fixture: explicit not-linked state, no QR.
+    expect(await screen.findByText("Outdoor Unit Not Linked")).toBeTruthy();
+    // Every role may file an issue report from the asset page.
+    expect(await screen.findByText("Report Issue")).toBeTruthy();
+    // Regenerate is an EDIT_ASSET action: hidden from viewers.
+    expect(screen.queryByTitle("Regenerate label (the code itself never changes)")).toBeNull();
   });
 
   it("shows the QR card with Download QR for SUPER_ADMIN", async () => {
     authState.user = { role: "SUPER_ADMIN" };
     renderDetail();
 
-    expect(await screen.findByText("Asset QR")).toBeTruthy();
+    expect(await screen.findByText(/Asset QR · Indoor Unit/)).toBeTruthy();
     expect(await screen.findByText("Download QR")).toBeTruthy();
+    expect(await screen.findByTitle("Regenerate label (the code itself never changes)")).toBeTruthy();
   });
 });

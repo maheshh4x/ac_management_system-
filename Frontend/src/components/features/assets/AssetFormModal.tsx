@@ -62,6 +62,8 @@ const assetFormSchema = z.object({
   next_service_date: z.string(),
   technician: z.string().max(200, 'Max 200 characters'),
   remarks: z.string().max(2000, 'Max 2000 characters'),
+  unit_role: z.string().refine(v => v === '' || v === 'INDOOR' || v === 'OUTDOOR', 'Unit role must be INDOOR or OUTDOOR'),
+  parent_ac_id: z.string().max(128, 'Max 128 characters'),
 });
 
 type FormValues = z.infer<typeof assetFormSchema>;
@@ -88,6 +90,8 @@ const EMPTY: FormValues = {
   next_service_date: '',
   technician: '',
   remarks: '',
+  unit_role: 'INDOOR',
+  parent_ac_id: '',
 };
 
 function fromAsset(asset: ExtendedAC): FormValues {
@@ -111,6 +115,8 @@ function fromAsset(asset: ExtendedAC): FormValues {
     next_service_date: asset.nextMaintenanceDate ?? '',
     technician: asset.technician ?? '',
     remarks: asset.remarks ?? '',
+    unit_role: asset.unitRole === 'OUTDOOR' ? 'OUTDOOR' : 'INDOOR',
+    parent_ac_id: asset.parentAcId ?? '',
   };
 }
 
@@ -138,6 +144,8 @@ function buildPayload(values: FormValues, mode: 'create' | 'edit'): Record<strin
     next_service_date: date(values.next_service_date),
     technician: str(values.technician),
     remarks: str(values.remarks),
+    unit_role: values.unit_role.trim() === '' ? 'INDOOR' : values.unit_role.trim().toUpperCase(),
+    parent_ac_id: str(values.parent_ac_id),
   };
   if (mode === 'create') payload.ac_id = values.ac_id.trim();
   return payload;
@@ -156,6 +164,8 @@ function serverFieldErrors(err: unknown): Record<string, string> {
   if (err.code === 'ASSET_EXISTS') out.ac_id = err.message;
   if (err.code === 'SERIAL_EXISTS') out.ac_serial_number = err.message;
   if (err.code === 'INVALID_ROOM') out.room_id = err.message;
+  if (err.code === 'INVALID_PARENT_UNIT') out.parent_ac_id = err.message;
+  if (err.code === 'OUTDOOR_ALREADY_LINKED') out.parent_ac_id = err.message;
   return out;
 }
 
@@ -386,6 +396,27 @@ export const AssetFormModal: React.FC<AssetFormModalProps> = ({ isOpen, onClose,
                 ))}
               </select>
             </div>
+
+            <div className="sm:col-span-2 pt-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Unit linkage <span className="font-normal normal-case text-slate-400">— a split system is two records: this row plus one OUTDOOR row linked to it</span>
+              </p>
+            </div>
+            <div className="sm:col-span-1">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Unit role</label>
+              <select
+                value={values.unit_role}
+                onChange={set('unit_role')}
+                className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+              >
+                <option value="INDOOR">Indoor unit</option>
+                <option value="OUTDOOR">Outdoor unit</option>
+              </select>
+            </div>
+            {field('parent_ac_id', 'Linked indoor AC ID', {
+              placeholder: 'Required when role is Outdoor — e.g. AC-001',
+              span: 'sm:col-span-1',
+            })}
 
             {field('installation_date', 'Installation Date', { type: 'date' })}
             {field('last_maintenance_date', 'Last Maintenance', { type: 'date' })}

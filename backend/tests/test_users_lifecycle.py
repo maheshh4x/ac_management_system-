@@ -513,14 +513,14 @@ def _notifications_read(profile_id: str) -> int:
         conn.close()
 
 
-# ── fresh signup lifecycle (no trigger): /me signal -> register -> approve ──
+# ── fresh signup lifecycle (no trigger): /me signal -> register -> approved ──
 
 
-def test_subject_without_profile_row_registers_pending_then_approved(secret_client, ledger):
+def test_subject_without_profile_row_registers_approved_then_uses_app(secret_client, ledger):
     """A confirmed signup with no profiles row (email-confirmation flow when
     the auth trigger is absent): GET /me answers role null — the frontend's
-    self-registration signal — register-profile creates VIEWER/PENDING, the
-    subject stays gated until an admin approves, then /me shows APPROVED."""
+    self-registration signal — register-profile creates APPROVED/VIEWER with
+    no approver step, and the subject can use the app immediately."""
     import uuid as uuid_mod
 
     sub = str(uuid_mod.uuid4())
@@ -533,7 +533,7 @@ def test_subject_without_profile_row_registers_pending_then_approved(secret_clie
     assert r.status_code == 200, r.get_json()
     assert r.get_json()["data"]["role"] is None
 
-    # 2. Self-registration creates the PENDING row (requested role recorded,
+    # 2. Self-registration creates the APPROVED row (requested role recorded,
     #    never granted); repeating it is a no-op.
     r = secret_client.post(
         "/api/v1/auth/register-profile",
@@ -542,27 +542,26 @@ def test_subject_without_profile_row_registers_pending_then_approved(secret_clie
     )
     assert r.status_code == 201, r.get_json()
     body = r.get_json()["data"]
-    assert body["role"] == "VIEWER" and body["status"] == "PENDING"
+    assert body["role"] == "VIEWER" and body["status"] == "APPROVED"
     assert body["requested_role"] == "TECHNICIAN"
     r = secret_client.post("/api/v1/auth/register-profile", json={}, headers=newcomer)
     assert r.status_code == 200, r.get_json()
 
-    # 3. Pending: visible on /me, blocked everywhere else.
+    # 3. Approved: visible on /me, usable everywhere a viewer may go — no
+    #    approver step in between.
     r = secret_client.get("/api/v1/me", headers=newcomer)
-    assert r.get_json()["data"]["status"] == "PENDING"
+    assert r.get_json()["data"]["status"] == "APPROVED"
     r = secret_client.get("/api/v1/assets", headers=newcomer)
-    assert r.status_code == 403 and _code(r) == "ACCOUNT_PENDING"
+    assert r.status_code == 200, r.get_json()
 
-    # 4. Admin approval moves them through the normal workflow.
+    # 4. A later elevation still flows through the audited admin mechanism.
     actor = ledger(role="SUPER_ADMIN", status="APPROVED")
     admin = auth(make_token("SUPER_ADMIN", sub=actor))
-    r = secret_client.get("/api/v1/approvals?status=PENDING", headers=admin)
-    assert sub in [item["id"] for item in r.get_json()["data"]]
     r = secret_client.post(f"/api/v1/approvals/{sub}/approve", json={}, headers=admin)
     assert r.status_code == 200, r.get_json()
-    assert r.get_json()["data"]["status"] == "APPROVED"
+    assert r.get_json()["data"]["role"] == "TECHNICIAN"
     r = secret_client.get("/api/v1/me", headers=newcomer)
-    assert r.get_json()["data"]["status"] == "APPROVED"
+    assert r.get_json()["data"]["role"] == "TECHNICIAN"
 
     conn = get_db_connection()
     try:

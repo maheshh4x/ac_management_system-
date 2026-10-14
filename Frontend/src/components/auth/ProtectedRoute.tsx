@@ -10,6 +10,7 @@ import React, { useEffect } from 'react';
 import { useAuth, roleHome } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { Permission, Role, hasPermission, canAccessRoute } from '@/lib/permissions';
+import { loginUrl } from '@/lib/redirect';
 
 const PUBLIC_PATHS = ['/login', '/signup'];
 
@@ -24,7 +25,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const isPublicPath =
       PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith('/a/');
     if (!user && !isPublicPath) {
-      router.replace('/login');
+      // Preserve the destination (same allow-list the login page enforces)
+      // so post-login lands back here instead of the role home.
+      router.replace(loginUrl(pathname));
       return;
     }
     if (!user) return;

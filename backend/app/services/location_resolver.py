@@ -134,6 +134,15 @@ def normalize(value) -> str:
     return re.sub(r"[^a-z0-9]+", "", value)
 
 
+def match_key(value) -> str:
+    """The single shared normalization policy (Option A, D1): the comparison
+    key for campus and manufacturer names. Storage keeps display text;
+    every name comparison folds through here. Byte-identical to
+    :func:`normalize`; the SQL twin is ``location_sql.fold_sql``.
+    """
+    return normalize(value)
+
+
 def clean_value(value):
     """Trim-only cleaning for caller-supplied source values (the importer
     applies its own sentinel handling — ``_empty_to_none`` — before calling

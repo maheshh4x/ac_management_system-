@@ -9,7 +9,7 @@
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { mapAsset, toUiStatus, type ApiAsset } from "@/lib/adapters/asset";
+import { mapAsset, toUiStatus, type ApiAsset, type LinkedUnitSummary } from "@/lib/adapters/asset";
 import type {
   AssetFacets,
   ACStatistics,
@@ -145,6 +145,7 @@ export interface SummaryKpis {
 }
 
 export interface DashboardSummary {
+  scope?: string;
   kpis: SummaryKpis;
   by_status: { status: string; count: number }[];
   by_manufacturer: { manufacturer: string; count: number }[];
@@ -170,6 +171,10 @@ export interface AssetDetail extends ExtendedAC {
   locationHistory: { [k: string]: unknown }[];
   attributes: { attribute_name: string; attribute_value: string | null; attribute_type?: string }[];
   qrVersion?: number;
+  /** Linked OUTDOOR row for an indoor asset (Feature A); null = not linked. */
+  outdoorUnit?: LinkedUnitSummary | null;
+  /** Indoor parent of an outdoor row; null for indoor assets. */
+  parentUnit?: LinkedUnitSummary | null;
 }
 
 function mapAssetDetail(raw: Record<string, unknown>): AssetDetail {
@@ -181,6 +186,8 @@ function mapAssetDetail(raw: Record<string, unknown>): AssetDetail {
     locationHistory: (raw.location_history as AssetDetail["locationHistory"]) ?? [],
     attributes: (raw.attributes as AssetDetail["attributes"]) ?? [],
     qrVersion: typeof raw.qr_version === "number" ? raw.qr_version : undefined,
+    outdoorUnit: (raw.outdoor_unit as LinkedUnitSummary | null) ?? null,
+    parentUnit: (raw.parent_unit as LinkedUnitSummary | null) ?? null,
   };
 }
 

@@ -21,7 +21,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from psycopg2 import pool
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
+# D9: override=False — real process env wins over .env. With override=True,
+# any standalone CLI that exported DB_* (e.g. pointing at the TEST database)
+# was silently re-pointed at the live cluster at import, and migrations ran
+# against production. When the process env is empty (deploys, plain local
+# runs) the .env values still fill in exactly as before.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 logger = logging.getLogger(__name__)
 

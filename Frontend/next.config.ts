@@ -1,32 +1,27 @@
 import type { NextConfig } from "next";
 
+import { resolveApiBaseUrl } from "./src/lib/api/config";
+
 /**
- * Security headers (Phase 2, task 9). CSP allows exactly the origins the app
- * talks to: self, the Supabase project, the Flask API, and blob:/data: for the
- * QR scanner canvas and 3D viewer. The QR scanner needs `camera=(self)`.
+ * P1-A build-time gate: resolve (and VALIDATE) the API origin while the
+ * config loads, so `next build` fails fast with an operator-actionable
+ * message when production NEXT_PUBLIC_API_URL is missing, malformed, a
+ * loopback address, or plain http on a public host. Development keeps the
+ * documented local default (http://localhost:5000).
+ *
+ * P1-B: the Content-Security-Policy itself is emitted per request by
+ * src/proxy.ts (static policy for all pages; strict nonce policy for the
+ * anonymous QR surface /a/* — the documented Next.js nonce pattern). It is
+ * intentionally NOT set here: two CSP headers on one response would be
+ * enforced as an intersection and break nonce-based rendering.
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const SUPABASE_HOST = SUPABASE_URL ? new URL(SUPABASE_URL).origin : "";
-const SUPABASE_WSS = SUPABASE_HOST ? SUPABASE_HOST.replace(/^http/, "ws") : "";
+resolveApiBaseUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 
-const cspDirectives = [
-  "default-src 'self'",
-  // Tailwind/injected styles require unsafe-inline; no remote scripts allowed.
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  `connect-src 'self' ${API_URL} ${SUPABASE_HOST} ${SUPABASE_WSS}`.trim(),
-  "media-src 'self'",
-  "worker-src 'self' blob:",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
-
+/**
+ * Security headers (Phase 2, task 9) — everything except CSP (see proxy.ts).
+ * The QR scanner needs `camera=(self)`.
+ */
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: cspDirectives },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   // Camera for the QR scanner (this origin only); mic/geolocation unused.
   { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },

@@ -13,24 +13,28 @@ export type Permission =
   | 'VIEW_REPORTS' 
   | 'MANAGE_USERS' 
   | 'VIEW_AUDIT_LOGS' 
-  | 'MANAGE_SETTINGS';
+  | 'MANAGE_SETTINGS'
+  | 'RECORD_USAGE_SESSION';
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: [
     'VIEW_AC', 'CREATE_AC', 'EDIT_AC', 'DEACTIVATE_AC', 
     'MANAGE_CAMPUS', 'MANAGE_MAINTENANCE', 'CREATE_MOVEMENT_REQUEST', 
     'APPROVE_MOVEMENT', 'COMPLETE_MOVEMENT', 'VIEW_REPORTS', 'MANAGE_USERS', 
-    'VIEW_AUDIT_LOGS', 'MANAGE_SETTINGS'
+    'VIEW_AUDIT_LOGS', 'MANAGE_SETTINGS', 'RECORD_USAGE_SESSION'
   ],
   FACILITY_MANAGER: [
     'VIEW_AC', 'CREATE_AC', 'MANAGE_CAMPUS', 'MANAGE_MAINTENANCE',
-    'APPROVE_MOVEMENT', 'COMPLETE_MOVEMENT', 'VIEW_REPORTS'
+    'APPROVE_MOVEMENT', 'COMPLETE_MOVEMENT', 'VIEW_REPORTS', 'RECORD_USAGE_SESSION'
   ],
   TECHNICIAN: [
-    'VIEW_AC', 'CREATE_MOVEMENT_REQUEST', 'COMPLETE_MOVEMENT', 'MANAGE_MAINTENANCE'
+    'VIEW_AC', 'CREATE_MOVEMENT_REQUEST', 'COMPLETE_MOVEMENT', 'MANAGE_MAINTENANCE',
+    'RECORD_USAGE_SESSION'
   ],
+  // VIEWER records observed usage (sessions are a ledger, not control);
+  // every other mutation stays outside this set by design.
   VIEWER: [
-    'VIEW_AC'
+    'VIEW_AC', 'RECORD_USAGE_SESSION'
   ]
 };
 
@@ -63,6 +67,12 @@ export const canApproveMaintenanceRequests = (role: Role | null): boolean =>
 export const canApproveRequests = (role: Role | null): boolean =>
   role === 'SUPER_ADMIN' || role === 'FACILITY_MANAGER';
 export const canEditProfile = (role: Role | null): boolean => role !== 'VIEWER';
+
+/** QR ON/OFF session control: usage-session recording is observed-usage logging
+ * (ledger-only, no hardware control), so viewers hold it too. Every other
+ * mutation stays gated elsewhere. */
+export const canRecordSession = (role: Role | null): boolean =>
+  role === 'SUPER_ADMIN' || role === 'FACILITY_MANAGER' || role === 'TECHNICIAN' || role === 'VIEWER';
 
 /**
  * Role → the asset detail page inside that role's portal (Phase 6): the

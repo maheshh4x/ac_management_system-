@@ -3,13 +3,14 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Airplay, MapPin, Wrench, History, FileText, Settings, ShieldCheck, ChevronLeft, ChevronRight, Map, Users, FileLock, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Airplay, MapPin, Wrench, History, FileText, Settings, ShieldCheck, ChevronLeft, ChevronRight, Map, Users, FileLock, ClipboardCheck, ClipboardList, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { hasPermission, Permission } from '@/lib/permissions';
 import { ProtectedAction } from '@/components/auth/ProtectedRoute';
 import { useApprovals } from '@/lib/api/users';
+import { usePendingReports } from '@/lib/api/issue-reports';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -33,6 +34,11 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     enabled: hasPermission(user?.role || null, 'MANAGE_USERS'),
   });
   const pendingCount = approvals.data?.pagination.total ?? 0;
+  // Issue-report queue badge (SUPER_ADMIN only — the only role that sees
+  // the approval UI; the backend scopes the query regardless).
+  const isAdmin = user?.role === 'SUPER_ADMIN';
+  const issuePending = usePendingReports(isAdmin);
+  const issuePendingCount = issuePending.data?.pagination.total ?? 0;
   
   const roleBase = user?.role === 'SUPER_ADMIN' ? '/admin' : 
                    user?.role === 'FACILITY_MANAGER' ? '/manager' : 
@@ -42,7 +48,9 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     if (user?.role === 'TECHNICIAN') {
        return [
          { icon: LayoutDashboard, label: 'Dashboard', href: `${roleBase}/dashboard`, permission: null },
+         { icon: Zap, label: 'Energy Management', href: `${roleBase}/energy`, permission: 'VIEW_AC' },
          { icon: Wrench, label: 'My Jobs', href: `${roleBase}/jobs`, permission: null },
+         { icon: ClipboardList, label: 'My Reports', href: `${roleBase}/my-reports`, permission: null },
          { icon: Airplay, label: 'Scan QR', href: `${roleBase}/scan`, permission: null },
          { icon: Map, label: 'AC Locations', href: '/campus', permission: null },
          { icon: History, label: 'Movement Requests', href: `${roleBase}/movement`, permission: null },
@@ -53,9 +61,10 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     if (user?.role === 'VIEWER') {
        return [
          { icon: LayoutDashboard, label: 'Dashboard', href: `${roleBase}/dashboard`, permission: null },
-         { icon: Airplay, label: 'AC Assets', href: '/admin/assets', permission: null },
+         { icon: Airplay, label: 'AC Assets', href: `${roleBase}/assets`, permission: 'VIEW_AC' },
          { icon: Wrench, label: 'Maintenance & Movement', href: '/manager/maintenance', permission: null },
-         { icon: FileText, label: 'Reports', href: '/manager/reports', permission: null },
+         { icon: ClipboardList, label: 'My Reports', href: `${roleBase}/my-reports`, permission: null },
+         { icon: Zap, label: 'Energy Management', href: `${roleBase}/energy`, permission: 'VIEW_AC' },
          { icon: Users, label: 'Users & Roles', href: '/admin/users', permission: null },
          { icon: ClipboardCheck, label: 'Pending Approvals', href: '/admin/approvals', permission: null, badge: pendingCount },
          { icon: Map, label: 'AC Search', href: `${roleBase}/search`, permission: null },
@@ -67,12 +76,14 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     // Admins and Managers
     return [
       { icon: LayoutDashboard, label: 'Dashboard', href: `${roleBase}/dashboard`, permission: null },
-      { icon: ClipboardCheck, label: 'Pending Approvals', href: `${roleBase}/approvals`, permission: null, badge: pendingCount },
+      { icon: ClipboardCheck, label: 'Pending Approvals', href: `${roleBase}/approvals`, permission: null, badge: pendingCount + (isAdmin ? issuePendingCount : 0) },
       { icon: MapPin, label: 'Campus Mgmt', href: `${roleBase}/campus`, permission: 'MANAGE_CAMPUS' },
       { icon: Map, label: '3D Campus Map', href: '/campus', permission: null },
       { icon: Airplay, label: 'AC Assets', href: `${roleBase}/assets`, permission: 'VIEW_AC' },
       { icon: Wrench, label: 'Maintenance & Movement', href: `${roleBase}/maintenance`, permission: 'VIEW_AC' },
-      { icon: FileText, label: 'Reports', href: `${roleBase}/reports`, permission: 'VIEW_REPORTS' },
+      { icon: FileText, label: 'Asset Value', href: `${roleBase}/asset-value`, permission: 'VIEW_REPORTS' },
+      { icon: ClipboardList, label: 'My Reports', href: `${roleBase}/my-reports`, permission: null },
+      { icon: Zap, label: 'Energy Management', href: `${roleBase}/energy`, permission: 'VIEW_AC' },
       { icon: Users, label: 'Users & Roles', href: `${roleBase}/users`, permission: 'MANAGE_USERS' },
       { icon: FileLock, label: 'Audit Logs', href: `${roleBase}/audit`, permission: 'VIEW_AUDIT_LOGS' },
     ];

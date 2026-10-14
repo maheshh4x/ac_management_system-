@@ -47,6 +47,10 @@ export interface ExtendedAC {
   departmentName?: string;
   lifecycleStatus?: string;
   isActive?: boolean;
+  /** Indoor/outdoor unit designation (migration 020); defaults to INDOOR. */
+  unitRole?: string;
+  /** ac_id of the linked indoor parent (OUTDOOR rows only). */
+  parentAcId?: string;
   createdAt?: string;
   updatedAt?: string;
 }

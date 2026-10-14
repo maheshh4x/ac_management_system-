@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api.v1.users import evaluate_approval  # noqa: E402
+from app.config.database import get_db_connection  # noqa: E402
 from tests.conftest import TEST_SECRET, auth, make_token  # noqa: E402
 
 TEST_DB = os.getenv("TEST_DATABASE_URL")
@@ -74,20 +75,56 @@ def test_technician_and_viewer_cannot_approve():
 
 @needs_db
 def test_register_profile_idempotent_and_viewer_default(secret_client):
-    # Distinct sub: keeps the test-DB profiles row isolated from other tests.
-    token = make_token("VIEWER", sub="44444444-4444-4444-4444-444444444444")
+    import uuid as uuid_mod
+
+    # Fresh sub every run: isolated from other tests and reruns.
+    sub = str(uuid_mod.uuid4())
+    token = auth(make_token(None, sub=sub))
     r1 = secret_client.post(
         "/api/v1/auth/register-profile",
-        json={"name": "T", "requested_role": "SUPER_ADMIN"},
-        headers=auth(token),
+        json={"name": "T", "requested_role": "TECHNICIAN"},
+        headers=token,
     )
     assert r1.status_code in (200, 201)
     body = r1.get_json()["data"]
-    # requested role is recorded, never granted: role stays VIEWER/PENDING.
+    # Automatic onboarding: verified identity lands APPROVED/VIEWER with no
+    # approver step; the requested (non-privileged) role is recorded only.
     assert body["role"] == "VIEWER"
-    assert body["status"] == "PENDING"
-    r2 = secret_client.post("/api/v1/auth/register-profile", json={}, headers=auth(token))
+    assert body["status"] == "APPROVED"
+    assert body["requested_role"] == "TECHNICIAN"
+    r2 = secret_client.post("/api/v1/auth/register-profile", json={}, headers=token)
     assert r2.status_code == 200
+    assert r2.get_json()["data"]["status"] == "APPROVED"
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM audit_logs WHERE user_id = %s::uuid", (sub,))
+            cur.execute("DELETE FROM profiles WHERE id = %s::uuid", (sub,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@needs_db
+def test_register_profile_rejects_privileged_requested_roles(secret_client):
+    import uuid as uuid_mod
+
+    for requested in ("SUPER_ADMIN", "FACILITY_MANAGER"):
+        sub = str(uuid_mod.uuid4())
+        r = secret_client.post(
+            "/api/v1/auth/register-profile",
+            json={"name": "T", "requested_role": requested},
+            headers=auth(make_token(None, sub=sub)),
+        )
+        assert r.status_code == 400, (requested, r.get_json())
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM profiles WHERE id = %s::uuid", (sub,))
+                assert cur.fetchone()[0] == 0, "rejected registration must not create a row"
+        finally:
+            conn.close()
 
 
 @needs_db

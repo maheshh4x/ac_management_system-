@@ -8,6 +8,11 @@ TECHNICIAN/VIEWER inside the approval endpoints — scoping is business
 logic, not a static permission).
 VIEW_PUBLIC_ASSET is not a role permission: the public asset endpoint is
 anonymous by design and separately rate-limited.
+RECORD_USAGE_SESSION gates AC usage-session start/stop (QR ON/OFF control):
+field roles that operate ACs hold it. VIEWER holds it too: starting or
+stopping a session only appends a ledger row recording observed usage — it
+operates no hardware and mutates no asset — while every other write
+permission stays admin/field-gated.
 """
 
 from __future__ import annotations
@@ -37,9 +42,11 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "EXPORT_DATA",
         "MANAGE_USERS",
         "APPROVE_USERS",
+        "APPROVE_REPORTS",
         "VIEW_AUDIT",
         "MANAGE_SETTINGS",
         "IMPORT_DATA",
+        "RECORD_USAGE_SESSION",
     },
     "FACILITY_MANAGER": {
         "VIEW_ASSET",
@@ -55,9 +62,18 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "EXPORT_DATA",
         "APPROVE_USERS",
         "IMPORT_DATA",
+        "RECORD_USAGE_SESSION",
     },
-    "TECHNICIAN": {"VIEW_ASSET", "CREATE_MOVEMENT", "MANAGE_MAINTENANCE", "COMPLETE_MOVEMENT"},
-    "VIEWER": {"VIEW_ASSET"},
+    "TECHNICIAN": {
+        "VIEW_ASSET",
+        "CREATE_MOVEMENT",
+        "MANAGE_MAINTENANCE",
+        "COMPLETE_MOVEMENT",
+        "RECORD_USAGE_SESSION",
+    },
+    # VIEWER records observed usage (sessions are a ledger, not control);
+    # every other mutation stays outside this set by design.
+    "VIEWER": {"VIEW_ASSET", "RECORD_USAGE_SESSION"},
 }
 
 

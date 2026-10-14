@@ -37,6 +37,51 @@ def _duplicate_serial_conflict(cur, serial: str, exclude_ac_id: str | None = Non
     return (row["asset_code"] or row["ac_id"]) if row else None
 
 
+def _validate_unit_link(cur, ac_id: str, unit_role: str | None, parent_ac_id: str | None):
+    """Validate the indoor/outdoor link (migration 020). Returns an error
+    response on violation, else None. Rules: a parent link requires
+    unit_role OUTDOOR; the parent must exist and be INDOOR; no self-parent;
+    a row with linked children cannot become OUTDOOR."""
+    role = (unit_role or "INDOOR").upper()
+    parent = (parent_ac_id or "").strip() or None
+    if parent is None and role == "INDOOR":
+        return None
+    if parent is not None and role != "OUTDOOR":
+        return error(
+            "VALIDATION_ERROR",
+            "parent_ac_id may only be set on an OUTDOOR unit.",
+            400,
+        )
+    if parent is not None:
+        if parent == ac_id:
+            return error("VALIDATION_ERROR", "An asset cannot be its own parent unit.", 400)
+        cur.execute("SELECT unit_role FROM acs WHERE ac_id = %s", (parent,))
+        parent_row = cur.fetchone()
+        if parent_row is None:
+            return error("INVALID_PARENT_UNIT", f"Parent asset '{parent}' does not exist.", 400)
+        if (parent_row["unit_role"] or "INDOOR") != "INDOOR":
+            return error("INVALID_PARENT_UNIT", "A parent unit must itself be an INDOOR asset.", 400)
+    if role == "OUTDOOR":
+        cur.execute("SELECT 1 FROM acs WHERE parent_ac_id = %s LIMIT 1", (ac_id,))
+        if cur.fetchone() is not None:
+            return error(
+                "VALIDATION_ERROR",
+                "This asset has linked outdoor units and cannot become an OUTDOOR unit.",
+                400,
+            )
+    return None
+    """Return the conflicting asset_code when ``serial`` already exists
+    (Phase 3 task 2: duplicate non-empty serials are a 409 with the code)."""
+    if not serial:
+        return None
+    cur.execute(
+        "SELECT asset_code, ac_id FROM acs WHERE ac_serial_number = %s AND ac_id <> COALESCE(%s, '') LIMIT 1",
+        (serial, exclude_ac_id),
+    )
+    row = cur.fetchone()
+    return (row["asset_code"] or row["ac_id"]) if row else None
+
+
 @assets_write_v1_bp.route("/api/v1/assets", methods=["POST"])
 @require_auth
 @require_permission("CREATE_ASSET")
@@ -63,6 +108,23 @@ def create_asset():
                     409,
                     {"conflicting_asset_code": conflict_code},
                 )
+            link_err = _validate_unit_link(cur, payload.ac_id, payload.unit_role, payload.parent_ac_id)
+            if link_err:
+                cur.close()
+                return link_err
+            if (payload.unit_role or "INDOOR").upper() == "OUTDOOR" and (payload.parent_ac_id or "").strip():
+                cur.execute(
+                    "SELECT ac_id FROM acs WHERE parent_ac_id = %s AND unit_role = 'OUTDOOR' LIMIT 1",
+                    (payload.parent_ac_id.strip(),),
+                )
+                clash = cur.fetchone()
+                if clash:
+                    cur.close()
+                    return error(
+                        "OUTDOOR_ALREADY_LINKED",
+                        f"Asset '{payload.parent_ac_id.strip()}' already has a linked outdoor unit.",
+                        409,
+                    )
             cur.execute(
                 """INSERT INTO acs (ac_id, room_id, ac_make_company, ac_model_number, ac_serial_number,
                                     ac_capacity_ton, ac_type, operational_status,
@@ -70,8 +132,9 @@ def create_asset():
                                     manufacturing_year, installation_year,
                                     ac_star_rating, power_rating_kw, power_factor,
                                     next_service_date, technician, remarks,
-                                    asset_code, lifecycle_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ACTIVE')
+                                    asset_code, lifecycle_status,
+                                    unit_role, parent_ac_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ACTIVE',%s,%s)
                    ON CONFLICT (ac_id) DO NOTHING RETURNING ac_id""",
                 (
                     payload.ac_id,
@@ -93,6 +156,8 @@ def create_asset():
                     payload.technician,
                     payload.remarks,
                     payload.ac_id,
+                    (payload.unit_role or "INDOOR").upper(),
+                    (payload.parent_ac_id or "").strip() or None,
                 ),
             )
             row = cur.fetchone()
@@ -100,6 +165,13 @@ def create_asset():
             conn.commit()
         finally:
             conn.close()
+    except pg_errors.UniqueViolation:
+        # Lost a race on uq_outdoor_per_parent after the pre-check above.
+        return error(
+            "OUTDOOR_ALREADY_LINKED",
+            "Another outdoor unit was just linked to this asset.",
+            409,
+        )
     except Exception:
         logger.exception("create asset failed request_id=%s", getattr(g, "request_id", "-"))
         return error("ASSET_CREATE_FAILED", "Unable to create the asset.", 500)
@@ -171,6 +243,28 @@ def update_asset(ac_id):
                     "Cannot set lifecycle_status to DECOMMISSIONED on an active asset; use POST /api/v1/assets/<ac_id>/decommission.",
                     400,
                 )
+            # Indoor/outdoor link (migration 020): validate the effective
+            # values — provided keys override the stored row.
+            if "unit_role" in fields or "parent_ac_id" in fields:
+                effective_role = fields.get("unit_role", before.get("unit_role") or "INDOOR")
+                effective_parent = fields.get("parent_ac_id", before.get("parent_ac_id"))
+                link_err = _validate_unit_link(cur, target_ac_id, effective_role, effective_parent)
+                if link_err:
+                    cur.close()
+                    return link_err
+                if (effective_role or "INDOOR").upper() == "OUTDOOR" and effective_parent:
+                    cur.execute(
+                        "SELECT ac_id FROM acs WHERE parent_ac_id = %s AND unit_role = 'OUTDOOR'"
+                        " AND ac_id <> %s LIMIT 1",
+                        (effective_parent, target_ac_id),
+                    )
+                    if cur.fetchone() is not None:
+                        cur.close()
+                        return error(
+                            "OUTDOOR_ALREADY_LINKED",
+                            f"Asset '{effective_parent}' already has a linked outdoor unit.",
+                            409,
+                        )
             sets = ", ".join(f"{k} = %s" for k in fields)
             cur.execute(
                 f"UPDATE acs SET {sets}, updated_at = NOW() WHERE ac_id = %s",
@@ -180,6 +274,13 @@ def update_asset(ac_id):
             conn.commit()
         finally:
             conn.close()
+    except pg_errors.UniqueViolation:
+        # Lost a race on uq_outdoor_per_parent after the pre-check above.
+        return error(
+            "OUTDOOR_ALREADY_LINKED",
+            "Another outdoor unit was just linked to this asset.",
+            409,
+        )
     except Exception:
         logger.exception("update asset failed request_id=%s", getattr(g, "request_id", "-"))
         return error("ASSET_UPDATE_FAILED", "Unable to update the asset.", 500)

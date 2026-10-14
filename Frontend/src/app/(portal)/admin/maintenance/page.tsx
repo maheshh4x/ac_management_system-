@@ -9,7 +9,7 @@ import { MaintenanceMovementShell } from '@/components/features/MaintenanceMovem
 import { MovementPanel } from '@/components/features/MovementPanel';
 
 import { useCreateJob, useJob, useJobAction, useJobs } from '@/lib/api/maintenance';
-import { useUsers } from '@/lib/api/users';
+import { useAssignableTechnicians } from '@/lib/api/users';
 import { toApiJobPriority, toApiJobStatus } from '@/lib/adapters/job';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -60,9 +60,9 @@ export default function MaintenancePage() {
   const apiStatus = statusFilter === 'All' ? undefined : toApiJobStatus(statusFilter as MaintenanceJob['status']);
   const { jobs, isLoading } = useJobs({ q: debouncedSearch || undefined, status: apiStatus, pageSize: 200 });
 
-  const techniciansQuery = useUsers({ role: 'TECHNICIAN', page: 1 });
+  const techniciansQuery = useAssignableTechnicians();
   const technicians = useMemo(
-    () => (techniciansQuery.data?.items ?? []).filter(profile => !profile.status || profile.status.toUpperCase() === 'APPROVED'),
+    () => techniciansQuery.data?.technicians ?? [],
     [techniciansQuery.data],
   );
 
@@ -342,6 +342,12 @@ export default function MaintenancePage() {
                   ))}
                 </select>
               </div>
+              {techniciansQuery.isError && (
+                <p className="text-xs font-semibold text-red-600">
+                  Could not load technicians.{' '}
+                  <button onClick={() => void techniciansQuery.refetch()} className="underline">Retry</button>
+                </p>
+              )}
               {runAction.isError && <p className="text-xs font-semibold text-red-600">{runAction.error instanceof Error ? runAction.error.message : 'Unable to assign the job.'}</p>}
             </div>
             <div className="p-5 border-t border-slate-100 flex justify-end gap-3">

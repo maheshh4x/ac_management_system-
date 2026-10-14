@@ -3,6 +3,6 @@
 import React from 'react';
 import { ReportsAnalyticsModule } from '@/components/features/reports/ReportsAnalyticsModule';
 
-export default function ManagerReportsPage() {
+export default function ManagerAssetValuePage() {
   return <ReportsAnalyticsModule />;
 }

@@ -7,11 +7,27 @@
  */
 import { Clock3, LogOut, RefreshCw, XCircle } from 'lucide-react';
 
+import { useState } from 'react';
+
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function PendingPage() {
-  const { user, status, refreshProfile, signOut } = useAuth();
+  const { user, status, refreshProfile, finalizeOnboarding, signOut } = useAuth();
   const rejected = status === 'rejected';
+  const [checking, setChecking] = useState(false);
+
+  const handleCheck = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      // Legacy PENDING accounts complete onboarding here; rejected accounts
+      // are returned untouched and stay on this wall.
+      if (!rejected) await finalizeOnboarding();
+      await refreshProfile();
+    } finally {
+      setChecking(false);
+    }
+  };
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
@@ -37,10 +53,11 @@ export default function PendingPage() {
         <div className="mt-6 flex items-center justify-center gap-3">
           <button
             type="button"
-            onClick={() => void refreshProfile()}
-            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+            onClick={() => void handleCheck()}
+            disabled={checking}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
           >
-            <RefreshCw size={15} /> Check status
+            <RefreshCw size={15} className={checking ? 'animate-spin' : undefined} /> Check status
           </button>
           <button
             type="button"

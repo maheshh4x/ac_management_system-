@@ -85,6 +85,10 @@ export const apiAssetSchema = z
     // Centrally derived display identifier (backend visual_id.py); rows
     // served before it existed simply map to undefined (callers fall back).
     visual_id: z.string().nullish(),
+    // Indoor/outdoor unit model (migration 020): absent on rows served
+    // before the migration — callers default to INDOOR / unlinked.
+    unit_role: z.string().nullish(),
+    parent_ac_id: z.string().nullish(),
   })
   .loose();
 
@@ -187,9 +191,23 @@ export function mapAsset(row: ApiAsset): ExtendedAC {
     locationDetail: a.location ? toLocationDetail(a.location) : undefined,
     lifecycleStatus: a.lifecycle_status ?? undefined,
     isActive: a.is_active ?? undefined,
+    unitRole: a.unit_role ?? 'INDOOR',
+    parentAcId: a.parent_ac_id ?? undefined,
     createdAt: a.created_at ?? undefined,
     updatedAt: a.updated_at ?? undefined,
   };
+}
+
+/** Linked-unit summary (Feature A): the backend serves these on the detail
+ * payload only; list rows carry neither key. */
+export interface LinkedUnitSummary {
+  ac_id: string;
+  asset_uuid: string | null;
+  asset_code: string | null;
+  ac_make_company: string | null;
+  ac_model_number: string | null;
+  ac_serial_number?: string | null;
+  operational_status: string | null;
 }
 
 // ── Location model helpers (source vs confirmed) ────────────────────────────

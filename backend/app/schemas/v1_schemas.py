@@ -29,6 +29,19 @@ ASSET_STATUSES = {
 MAINT_STATUSES = {"SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"}
 MAINT_PRIORITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
 MOVEMENT_STATUSES = {"PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED"}
+UNIT_ROLES = {"INDOOR", "OUTDOOR"}
+REPORT_CATEGORIES = {
+    "AC_NOT_COOLING",
+    "AC_NOT_STARTING",
+    "WATER_LEAKAGE",
+    "NOISE_VIBRATION",
+    "ELECTRICAL_POWER",
+    "OUTDOOR_UNIT",
+    "INDOOR_UNIT",
+    "PREVENTIVE_MAINTENANCE",
+    "OTHER",
+}
+REPORT_STATUSES = {"PENDING_APPROVAL", "APPROVED", "REJECTED"}
 
 
 class AssetCreate(BaseModel):
@@ -53,6 +66,21 @@ class AssetCreate(BaseModel):
     next_service_date: date | None = None
     technician: str | None = Field(default=None, max_length=200)
     remarks: str | None = Field(default=None, max_length=2000)
+    # Indoor/outdoor unit model (migration 020): a split system is two real
+    # acs rows; the OUTDOOR row links to its indoor parent. New rows default
+    # to INDOOR; the link is validated against acs in the write endpoints.
+    unit_role: str | None = None
+    parent_ac_id: str | None = None
+
+    @field_validator("unit_role")
+    @classmethod
+    def _valid_unit_role(cls, v):
+        if v is None:
+            return v
+        v = v.strip().upper()
+        if v not in UNIT_ROLES:
+            raise ValueError(f"unit_role must be one of {sorted(UNIT_ROLES)}")
+        return v
 
     @field_validator("ac_capacity_ton")
     @classmethod
@@ -78,6 +106,8 @@ class AssetUpdate(BaseModel):
     ac_type: str | None = None
     current_status: str | None = None
     lifecycle_status: str | None = None
+    unit_role: str | None = None
+    parent_ac_id: str | None = None
     installation_date: date | None = None
     last_maintenance_date: date | None = None
     remarks: str | None = None
@@ -88,6 +118,23 @@ class AssetUpdate(BaseModel):
     power_factor: Decimal | None = Field(default=None, ge=0, le=1)
     next_service_date: date | None = None
     technician: str | None = Field(default=None, max_length=200)
+
+    @field_validator("unit_role")
+    @classmethod
+    def _valid_unit_role(cls, v):
+        if v is None:
+            return v
+        v = v.strip().upper()
+        if v not in UNIT_ROLES:
+            raise ValueError(f"unit_role must be one of {sorted(UNIT_ROLES)}")
+        return v
+
+    @field_validator("parent_ac_id")
+    @classmethod
+    def _strip_parent(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v.strip() if isinstance(v, str) else v
 
     @field_validator("ac_capacity_ton")
     @classmethod
@@ -162,6 +209,70 @@ class MaintenanceCommentCreate(BaseModel):
         return [str(p) for p in v]
 
 
+class IssueReportCreate(BaseModel):
+    """Universal issue report (Feature B): any authenticated role may file;
+    every report starts PENDING_APPROVAL and becomes a work order only via
+    Super Admin approval. Reporter identity is server-derived, never trusted
+    from the body."""
+
+    ac_id: str = Field(min_length=1, max_length=128)
+    category: str
+    description: str = Field(min_length=1, max_length=2000)
+    priority: str | None = "MEDIUM"
+    location_text: str | None = Field(default=None, max_length=500)
+    # Client-generated idempotency key (one per form instance): a retried or
+    # double-clicked submission returns the original report instead of a
+    # duplicate. Optional — without it each POST creates a new report.
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+    @field_validator("category")
+    @classmethod
+    def _valid_category(cls, v):
+        v = (v or "").strip().upper()
+        if v not in REPORT_CATEGORIES:
+            raise ValueError(f"category must be one of {sorted(REPORT_CATEGORIES)}")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _non_empty_description(cls, v):
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("description is required")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def _valid_priority(cls, v):
+        if v is None:
+            return "MEDIUM"
+        v = v.strip().upper()
+        if v not in MAINT_PRIORITIES:
+            raise ValueError(f"priority must be one of {sorted(MAINT_PRIORITIES)}")
+        return v
+
+    @field_validator("location_text", "idempotency_key")
+    @classmethod
+    def _strip_optional(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v.strip() if isinstance(v, str) else v
+
+
+class IssueReportReject(BaseModel):
+    """Rejection requires a recorded reason (persisted on the report)."""
+
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def _non_empty_reason(cls, v):
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("reason is required")
+        return v
+
+
 class MovementCreate(BaseModel):
     ac_id: str | None = None
     asset_id: str | None = None
@@ -190,6 +301,12 @@ class MovementCommentCreate(BaseModel):
         return v
 
 
+class UsageSessionNote(BaseModel):
+    """Optional free-text note attached to an AC usage-session start/stop."""
+
+    note: str | None = Field(default=None, max_length=500)
+
+
 # ── users / approvals (Phase 1.3) ────────────────────────────────────────────
 
 PROFILE_STATUSES = {"PENDING", "APPROVED", "REJECTED"}
@@ -209,7 +326,8 @@ class ProfilePatch(BaseModel):
 
 class RegisterProfile(BaseModel):
     """Signup self-registration. ``role`` is never accepted: the server
-    assigns VIEWER; the requested role is only recorded for the approver."""
+    assigns VIEWER; the requested role is only recorded for the approver —
+    and only a non-privileged role may even be requested."""
 
     name: str | None = Field(default=None, max_length=200)
     requested_role: str | None = None
@@ -221,8 +339,8 @@ class RegisterProfile(BaseModel):
     @field_validator("requested_role")
     @classmethod
     def _valid_requested_role(cls, v):
-        if v is not None and v not in ROLES:
-            raise ValueError("requested_role must be a known role")
+        if v is not None and v not in ("TECHNICIAN", "VIEWER"):
+            raise ValueError("requested_role must be TECHNICIAN or VIEWER")
         return v
 
 

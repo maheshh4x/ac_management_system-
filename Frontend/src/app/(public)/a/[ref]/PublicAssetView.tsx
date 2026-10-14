@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { roleAssetDetail } from "@/lib/permissions";
+import { loginUrl } from "@/lib/redirect";
 
 /** Exact reduced field set returned by GET /api/v1/public/assets/<ref>
  * (plus the DERIVED visual_id — label-consistent human identifier). */
@@ -134,7 +135,7 @@ export function PublicAssetView({
           </>
         )}
         <Link
-          href="/login"
+          href={loginUrl(`/a/${slug}`)}
           className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
         >
           <LogIn size={16} /> Sign in for full details

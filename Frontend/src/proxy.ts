@@ -10,12 +10,32 @@
  *   - ProtectedRoute: redirects pending/rejected users to /pending.
  *
  * Public: /, /login, /signup, /a/<ref> (QR landing), /pending is session-only.
+ *
+ * P1-B: this proxy also EMITS the Content-Security-Policy for every page
+ * response (see src/lib/security/csp.ts):
+ *   - /a/* (anonymous QR surface) gets the strict nonce policy from the
+ *     Next.js CSP guide — `script-src 'self' 'nonce-…' 'strict-dynamic'`,
+ *     no 'unsafe-inline'. That page is dynamically rendered by construction
+ *     (no-store server fetch in app/(public)/a/[ref]/page.tsx), which nonce
+ *     CSP requires; Next.js picks the nonce up from the request header and
+ *     applies it to its own inline hydration/RSC scripts automatically.
+ *   - every other page keeps the static policy ('unsafe-inline' in
+ *     script-src) because the portal pages are statically prerendered —
+ *     converting them to dynamic rendering to use nonces is a separate
+ *     architecture decision (docs/security-review.md F6).
+ * CSP is deliberately NOT also set in next.config.ts: two policies on one
+ * response are enforced as an intersection, which would break nonced scripts.
  */
 import { NextResponse, type NextRequest } from "next/server";
+
+import { buildContentSecurityPolicy } from "./lib/security/csp";
 
 const PORTAL_PREFIXES = ["/admin", "/manager", "/technician", "/viewer", "/campus"];
 const PUBLIC_PAGES = ["/login", "/signup"];
 const SESSION_ONLY_PAGES = ["/pending", "/403"];
+
+/** Anonymous QR landing — dynamic by construction, so it can carry a nonce. */
+const NONCE_PREFIXES = ["/a/"];
 
 function hasSupabaseSessionCookie(request: NextRequest): boolean {
   return request.cookies
@@ -48,7 +68,24 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  // ── CSP (P1-B) ────────────────────────────────────────────────────────────
+  const wantsNonce = NONCE_PREFIXES.some((p) => pathname.startsWith(p));
+  const nonce = wantsNonce ? Buffer.from(crypto.randomUUID()).toString("base64") : undefined;
+  const csp = buildContentSecurityPolicy({ nonce });
+
+  const requestHeaders = new Headers(request.headers);
+  if (nonce) {
+    // Next.js reads the request-side CSP and applies the nonce to its own
+    // inline scripts during server-side rendering (Next.js CSP guide).
+    requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("Content-Security-Policy", csp);
+  }
+
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
 }
 
 export const config = {

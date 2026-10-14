@@ -2,17 +2,26 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, MapPin, Airplay, Building2, Loader2 } from 'lucide-react';
-import { searchAssets } from '@/lib/campus-services';
+import { searchAssets, blockIdForFloorId } from '@/lib/campus-services';
 import { useRouter } from 'next/navigation';
 import { useCampus } from '@/contexts/CampusContext';
 import { useAuth } from '@/contexts/AuthContext';
 
+const EMPTY_RESULTS = { acs: [], rooms: [], buildings: [] };
+/** Coalesce keystrokes: one request per pause, not one per character. */
+const SEARCH_DEBOUNCE_MS = 300;
+
 export function GlobalSearch() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<{ acs: any[], rooms: any[], buildings: any[] }>({ acs: [], rooms: [], buildings: [] });
+  const [results, setResults] = useState<{ acs: any[], rooms: any[], buildings: any[] }>(EMPTY_RESULTS);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // Monotonic sequence: only the newest search may touch state, so an older
+  // response can never overwrite a newer query's results (and unmount
+  // invalidates everything still in flight).
+  const seqRef = useRef(0);
   const router = useRouter();
   const { setState } = useCampus();
   const { user } = useAuth();
@@ -27,20 +36,47 @@ export function GlobalSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSearch = async (val: string) => {
-    setQuery(val);
-    if (val.length < 2) {
-      setResults({ acs: [], rooms: [], buildings: [] });
+  // Debounced search lifecycle (P2 fix): one request per pause instead of one
+  // per keystroke; try/catch/finally so the spinner always clears; failures
+  // land in a recoverable error state instead of an unhandled rejection; the
+  // sequence guard discards stale responses.
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      seqRef.current += 1; // invalidate anything still in flight
+      setResults(EMPTY_RESULTS);
+      setError(null);
+      setIsLoading(false);
       setIsOpen(false);
       return;
     }
-    
+
+    const seq = ++seqRef.current;
     setIsLoading(true);
     setIsOpen(true);
-    const res = await searchAssets(val);
-    setResults(res);
-    setIsLoading(false);
-  };
+    setError(null);
+    const timer = setTimeout(() => {
+      searchAssets(trimmed)
+        .then(res => {
+          if (seq === seqRef.current) setResults(res);
+        })
+        .catch(() => {
+          if (seq === seqRef.current) {
+            setResults(EMPTY_RESULTS);
+            setError('Search is unavailable right now. Please try again.');
+          }
+        })
+        .finally(() => {
+          if (seq === seqRef.current) setIsLoading(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Unmount: bump the sequence so late responses touch no state.
+  useEffect(() => () => {
+    seqRef.current += 1;
+  }, []);
 
   const handleSelect = (type: 'ac' | 'room' | 'building', item: any) => {
     setIsOpen(false);
@@ -60,13 +96,18 @@ export function GlobalSearch() {
           selectedAcId: item.id
         });
       } else if (type === 'room') {
-        setState({
-           level: 'Room',
-           selectedBuildingId: item.id.split('-').slice(0,2).join('-'),
-           selectedFloorId: item.floorId,
-           selectedRoomId: item.id,
-           selectedAcId: null
-        });
+        // D4-safe parent derivation: block ids are college-scoped, so the
+        // building is looked up from the floor instead of dash-surgery.
+        const floorId = (item.floorId as string | undefined) ?? '';
+        blockIdForFloorId(floorId).then((buildingId) =>
+          setState({
+            level: 'Room',
+            selectedBuildingId: buildingId,
+            selectedFloorId: floorId || null,
+            selectedRoomId: item.id,
+            selectedAcId: null,
+          }),
+        );
       } else if (type === 'building') {
         setState({
            level: 'Building',
@@ -87,14 +128,18 @@ export function GlobalSearch() {
         className="w-full bg-transparent border-none py-2.5 outline-none text-sm text-slate-700 placeholder:text-slate-500"
         placeholder={user?.role === 'TECHNICIAN' ? "Search AC ID, QR Code Data..." : "Search ACs, Rooms, Departments..."}
         value={query}
-        onChange={(e) => handleSearch(e.target.value)}
-        onFocus={() => query.length >= 2 && setIsOpen(true)}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => query.trim().length >= 2 && setIsOpen(true)}
       />
       {isLoading && <Loader2 className="w-4 h-4 text-slate-400 animate-spin absolute right-4" />}
 
-      {isOpen && (results.acs.length > 0 || results.rooms.length > 0 || results.buildings.length > 0) && (
+      {isOpen && (error !== null || results.acs.length > 0 || results.rooms.length > 0 || results.buildings.length > 0) && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-50">
           <div className="max-h-96 overflow-y-auto p-2">
+
+            {error && (
+              <div data-testid="global-search-error" className="px-3 py-3 text-sm text-red-600">{error}</div>
+            )}
             
             {results.acs.length > 0 && (
               <div className="mb-2 last:mb-0">

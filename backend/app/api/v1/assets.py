@@ -54,6 +54,7 @@ BASE_SELECT = f"""
     a.ac_capacity_ton, a.ac_type, a.manufacturing_year, a.installation_year,
     a.operational_status, a.location_status,
     a.lifecycle_status, a.is_active, a.qr_version,
+    a.unit_role, a.parent_ac_id,
     a.ac_star_rating, a.power_rating_kw, a.power_factor,
     a.installation_date, a.last_maintenance_date, a.next_service_date,
     a.technician, a.remarks, a.created_at, a.updated_at
@@ -122,8 +123,12 @@ def _like_literal(value: str) -> str:
     character") -> an unhandled 500 on ``/assets`` and ``/dashboard/summary``
     (Phase 8 finding). Escaping also stops ``%``/``_`` from silently turning
     an exact status match into a wildcard one.
+
+    Single implementation lives in :func:`location_sql.escape_like` (shared
+    with the name filters per D6); this stays as the local alias the status
+    path already calls.
     """
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return location_sql.escape_like(value)
 
 
 # ── Visual Asset ID search ─────────────────────────────────────────────────
@@ -229,8 +234,10 @@ def _build_filters(args) -> tuple[list[str], list]:
 
     def like(column: str, value: str | None):
         if value:
+            # D6: escape LIKE metacharacters (shared helper) — a manufacturer
+            # typed as "100%" matches the literal text, not a wildcard.
             where.append(f"{column} ILIKE %s")
-            params.append(f"%{value}%")
+            params.append(f"%{location_sql.escape_like(value)}%")
 
     status = clean_filter(args.get("status"))
     if status:
@@ -318,7 +325,9 @@ def _build_filters(args) -> tuple[list[str], list]:
         # The technical UUID stays searchable, and a Visual-ID-shaped query
         # additionally ORs in rows whose DERIVED id contains it (computed by
         # the one centralized formatter, never re-implemented in SQL).
-        pattern = f"%{search}%"
+        # D6: the substring is escaped so `%`/`_` in the query match
+        # literally instead of widening the search.
+        pattern = f"%{location_sql.escape_like(search)}%"
         clause = (
             "(a.ac_id ILIKE %s OR a.asset_code ILIKE %s OR a.ac_serial_number ILIKE %s"
             " OR a.asset_uuid::text ILIKE %s"
@@ -587,6 +596,37 @@ def get_asset(ref):
                     attributes = [dict(r) for r in cur.fetchall()]
                 except Exception:
                     attributes = []
+                # Section 4 — linked unit (Feature A, migration 020): an
+                # INDOOR asset exposes its linked OUTDOOR row (if any); an
+                # OUTDOOR row exposes its indoor parent. Additive only —
+                # pre-020 databases degrade to nulls instead of failing.
+                outdoor_unit = None
+                parent_unit = None
+                try:
+                    if (row.get("unit_role") or "INDOOR") == "OUTDOOR":
+                        if row.get("parent_ac_id"):
+                            cur.execute(
+                                "SELECT ac_id, asset_uuid, asset_code, ac_make_company,"
+                                " ac_model_number, operational_status"
+                                " FROM acs WHERE ac_id = %s LIMIT 1",
+                                (row["parent_ac_id"],),
+                            )
+                            parent_row = cur.fetchone()
+                            if parent_row:
+                                parent_unit = _serialize(dict(parent_row))
+                    else:
+                        cur.execute(
+                            "SELECT ac_id, asset_uuid, asset_code, ac_make_company,"
+                            " ac_model_number, ac_serial_number, operational_status"
+                            " FROM acs WHERE parent_ac_id = %s AND unit_role = 'OUTDOOR' LIMIT 1",
+                            (ac_id,),
+                        )
+                        outdoor_row = cur.fetchone()
+                        if outdoor_row:
+                            outdoor_unit = _serialize(dict(outdoor_row))
+                except Exception:
+                    outdoor_unit = None
+                    parent_unit = None
             cur.close()
         finally:
             conn.close()
@@ -599,6 +639,10 @@ def get_asset(ref):
     data["movement_history"] = movement_history
     data["location_history"] = location_history
     data["attributes"] = attributes
+    # Linked-unit identity (Feature A): null when unlinked — the frontend
+    # renders the "Outdoor Unit Not Linked" state from these nulls.
+    data["outdoor_unit"] = outdoor_unit
+    data["parent_unit"] = parent_unit
     # Per-asset label version (migration 010) — bumped by
     # POST /api/v1/assets/<ref>/qr/regenerate; QR_VERSION backstops NULL.
     data["qr_version"] = row.get("qr_version") or QR_VERSION

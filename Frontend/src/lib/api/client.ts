@@ -9,8 +9,11 @@
  * logged or persisted outside the Supabase client (cookies via @supabase/ssr).
  */
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { resolveApiBaseUrl } from "@/lib/api/config";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
+// P1-A: the API origin resolves through the ONE validated path — production
+// fails the build (clear message) instead of silently targeting localhost.
+const API_URL = resolveApiBaseUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 const TIMEOUT_MS = 15_000;
 
 export class ApiError extends Error {

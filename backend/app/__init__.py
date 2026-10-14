@@ -195,11 +195,14 @@ def create_app():
     from app.api.v1.campus import campus_v1_bp
     from app.api.v1.campus_import import campus_import_v1_bp
     from app.api.v1.chat import chat_v1_bp
+    from app.api.v1.energy import energy_v1_bp
+    from app.api.v1.issue_reports import issue_reports_v1_bp
     from app.api.v1.maintenance import maintenance_v1_bp
     from app.api.v1.movements import movements_v1_bp
     from app.api.v1.public import public_v1_bp
     from app.api.v1.qr import qr_v1_bp
     from app.api.v1.reports import reports_v1_bp
+    from app.api.v1.sessions import sessions_v1_bp
     from app.api.v1.system import system_v1_bp
     from app.api.v1.users import users_v1_bp
 
@@ -209,10 +212,13 @@ def create_app():
     app.register_blueprint(campus_v1_bp)
     app.register_blueprint(campus_import_v1_bp)
     app.register_blueprint(chat_v1_bp)
+    app.register_blueprint(energy_v1_bp)
+    app.register_blueprint(issue_reports_v1_bp)
     app.register_blueprint(maintenance_v1_bp)
     app.register_blueprint(movements_v1_bp)
     app.register_blueprint(qr_v1_bp)
     app.register_blueprint(reports_v1_bp)
+    app.register_blueprint(sessions_v1_bp)
     app.register_blueprint(system_v1_bp)
     app.register_blueprint(users_v1_bp)
     app.register_blueprint(public_v1_bp)

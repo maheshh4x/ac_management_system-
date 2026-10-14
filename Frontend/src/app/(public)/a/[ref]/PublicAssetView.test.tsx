@@ -66,6 +66,13 @@ describe("PublicAssetView — logged out (§10)", () => {
     expect(screen.getByText(/serial numbers, technicians/)).toBeTruthy();
   });
 
+  it("preserves the scanned destination across the login doorway", () => {
+    render(<PublicAssetView slug="ASSET-UUID-1" asset={ASSET} failed={false} />);
+
+    const link = screen.getByText("Sign in for full details").closest("a");
+    expect(link?.getAttribute("href")).toBe("/login?next=%2Fa%2FASSET-UUID-1");
+  });
+
   it("renders the derived visual id when the server provides one", () => {
     render(
       <PublicAssetView

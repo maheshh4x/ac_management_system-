@@ -13,6 +13,7 @@ import type { ApiProfile } from "@/lib/adapters/user";
 export const userKeys = {
   me: ["users", "me"] as const,
   list: (q: Record<string, string | number>) => ["users", "list", q] as const,
+  assignableTechnicians: ["users", "assignable-technicians"] as const,
   approvals: (status: string) => ["approvals", status] as const,
   notifications: (unread: boolean) => ["notifications", unread] as const,
 };
@@ -29,6 +30,28 @@ export function useUsers(query: { role?: string; status?: string; search?: strin
       const qs = params.toString();
       return apiList<ApiProfile>(`/api/v1/users${qs ? `?${qs}` : ""}`);
     },
+  });
+}
+
+export interface AssignableTechnician {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
+/**
+ * Technician picker for the assignment workflow. Unlike useUsers (MANAGE_USERS,
+ * SUPER_ADMIN only), this endpoint grants ASSIGN_MAINTENANCE holders the
+ * least-privilege list they need — otherwise managers see an empty dropdown.
+ */
+export function useAssignableTechnicians(enabled = true) {
+  return useQuery({
+    queryKey: userKeys.assignableTechnicians,
+    enabled,
+    queryFn: () =>
+      api<{ technicians: AssignableTechnician[]; total: number }>(
+        "/api/v1/users/assignable-technicians",
+      ),
   });
 }
 

@@ -4,7 +4,7 @@ import React, { ChangeEvent, DragEvent, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCampusTree, type CampusPhoto } from '@/lib/api/campus';
-import { api, apiFormData, type Paginated } from '@/lib/api/client';
+import { api, apiFormData, apiList } from '@/lib/api/client';
 import { type ApiAsset } from '@/lib/adapters/asset';
 import {
   allBlocks, fetchCampusTree, invalidateCampusTreeCache, toBuilding, toFloors, toRoom,
@@ -154,7 +154,10 @@ export default function CampusManagementPage() {
 
   /** Assets pointing at any of `roomIds` within the block. */
   const linkedRoomIds = async (blockName: string): Promise<Set<string>> => {
-    const page = await api<Paginated<ApiAsset>>(
+    // apiList matches the paginated envelope (`data` = array, `pagination`
+    // sibling); `api<Paginated<>>` returned the bare array and crashed on
+    // `.items` (same contract defect as campus-services searchAssets).
+    const page = await apiList<ApiAsset>(
       `/api/v1/assets?block=${enc(blockName)}&page_size=500`,
     );
     return new Set(page.items.map(item => item.room_id).filter(Boolean) as string[]);

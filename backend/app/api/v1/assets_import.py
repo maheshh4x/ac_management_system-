@@ -109,6 +109,124 @@ def _classify_row(ac_id: str | None, existing: set[str], seen: dict[str, int]):
     return "create"
 
 
+def _unit_key(value):
+    """Token-safe unit discriminator: fold integral Excel floats (``1.0`` ->
+    ``1``) so the same unit number never mints two tokens across revisions,
+    then slug. Plain ints/strings are untouched, so existing tokens are
+    stable.
+    """
+    if acs_parsers._empty_to_none(value) is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return acs_parsers._text_id(value)
+
+
+def _pending_identity(lookup: dict, values: dict) -> str:
+    """The canonical deterministic identity a canonical row gets when no room
+    resolves::
+
+        AC-LOC-<college>-<block>-<dept>[-F-<floor>][-T-<room-type>]
+               [-R-<room>][-U<unit>][-S<serial>]
+
+    Every present location component is encoded (blank components are
+    omitted); the trailing ``-U``/``-S`` discriminator is always present
+    when its value is. Component justification (each evidenced by real
+    duplicate groups in ``ACMS 301.xlsx``):
+
+    - college/block/department: the resolution scope (blocks are keyed
+      per-college in the schema); source slugs, never resolved ids, so the
+      token is independent of hierarchy state (an alias registered later
+      must not fork identities);
+    - floor: the same room number exists on different floors (rows 52/63,
+      53/64: Ground vs First);
+    - room type: the same room number carries different types (rows 12/15/17);
+    - room number: the same unit lives in different rooms;
+    - unit + serial: units in the same room (serial always included when
+      present — rows 12/15/17 share unit U1 but carry three distinct
+      serials and are three assets; rows 289/290 share one serial and are
+      one asset).
+
+    Deliberately EXCLUDED: ``ac_type`` (descriptive metadata — no duplicate
+    group in evidence differs only by it; ``WINDOOR AC'S`` vs ``Window``
+    variance would fork identities), resolved ids (state-independence
+    above), and fuzzy alias folding (alias-variant spellings stay visibly
+    distinct for review).
+
+    This is the identity the row's FIRST import was stored under while the
+    campus hierarchy was still incomplete; a later import whose location now
+    resolves must keep adopting it (idempotent re-import) instead of minting
+    a room-based ``AC-<room_id>-…`` duplicate of the same physical unit.
+    Rows with no source room/floor/type keep the historical
+    ``AC-LOC-<block>-<dept>[-U/-S]`` shape, byte-identical to
+    :func:`_legacy_identity`.
+    """
+    parts = [
+        acs_parsers._empty_to_none(lookup.get("college_name")),
+        acs_parsers._empty_to_none(lookup.get("block_name")),
+        acs_parsers._empty_to_none(lookup.get("department_name")),
+    ]
+    floor = acs_parsers._empty_to_none(lookup.get("floor_name"))
+    if floor is not None:
+        parts.append(f"F-{floor}")
+    room_type = acs_parsers._empty_to_none(lookup.get("room_type"))
+    if room_type is not None:
+        parts.append(f"T-{room_type}")
+    room = acs_parsers._empty_to_none(lookup.get("room_number"))
+    if room is not None:
+        parts.append(f"R-{room}")
+    location_ref = "-".join(str(part) for part in parts if part is not None)
+    token = acs_parsers._derive_ac_id(
+        None, _unit_key(lookup.get("unit_number")), None, location_ref=location_ref
+    )
+    serial_value = values.get("ac_serial_number")
+    if acs_parsers._empty_to_none(serial_value) is not None:
+        token = f"{token}-S{acs_parsers._text_id(serial_value)}"
+    return token
+
+
+def _legacy_identity(lookup: dict, values: dict) -> str:
+    """Pre-room-aware token shape (``AC-LOC-<block>-<dept>[-U/-S]``).
+
+    The 243 incident assets were stored under this shape before the ``-R-``
+    segment existed. Re-imports bridge to it (adopt instead of duplicating)
+    via the first-claim rule below; it is never minted for new rows that
+    carry a source room.
+    """
+    return acs_parsers._derive_ac_id(
+        None,
+        lookup.get("unit_number"),
+        values.get("ac_serial_number"),
+        location_ref=f"{lookup.get('block_name')}-{lookup.get('department_name')}",
+    )
+
+
+def _serial_key(value) -> str:
+    """Normalized serial for the pending-adoption guard.
+
+    Excel numeric serials arrive as ``8127591``/``8127591.0``; ``_text_id``
+    would slug the float spelling to ``8127591-0``, so fold integral floats
+    first and then compare case/space-insensitively — the same serial written
+    as ``s210400924SA00580`` or `` S210400924SA00580 `` must match.
+    """
+    return acs_parsers._text_id(acs_parsers._coerce_ac_id(value)) if value is not None else ""
+
+
+def _adoption_guard(stored_serial, row_serial) -> bool:
+    """True when a stored pending identity may be adopted by this row.
+
+    Adoption is refused only when BOTH sides carry a serial and they differ:
+    that token belongs to a different physical unit, so the row keeps its
+    fresh identity instead of hijacking the stored one. A blank on either
+    side is not evidence of a different unit.
+    """
+    return (
+        acs_parsers._empty_to_none(stored_serial) is None
+        or acs_parsers._empty_to_none(row_serial) is None
+        or _serial_key(stored_serial) == _serial_key(row_serial)
+    )
+
+
 def _kept_source_warnings(row_number: int, row_res, skip: set[str] | None = None) -> list[dict]:
     """Audit warnings for sources that failed but did not downgrade (§4).
 
@@ -318,6 +436,46 @@ def import_assets():
             # against it can never downgrade what is already confirmed.
             previous_by_ac: dict[str, dict] = {}
             _load_previous_location(cursor, existing_ids, previous_by_ac)
+            # Pending-era identities this file could adopt (idempotent
+            # re-import across a campus-data repair): canonical rows without
+            # an explicit ac_id were stored under their deterministic
+            # unassigned token while no room resolved. Once blocks/floors/
+            # rooms exist the same row derives a ROOM-based id — a brand-new
+            # ac_id that would duplicate the pending asset on re-import. One
+            # batched probe (with the stored serials, for the adoption guard
+            # below) instead of a per-row lookup; a dry run pays the same
+            # single read.
+            #
+            # Two token shapes are probed: the current room-aware token
+            # (``AC-LOC-<block>-<dept>[-R-<room>][-U/-S]``) and the legacy
+            # pre-``-R-`` shape the 243 incident assets were stored under.
+            # A row whose location now resolves adopts either stored shape;
+            # a still-pending row adopts its legacy shape on first claim
+            # (same legacy token + same room identity merges; a different
+            # room identity mints its own asset — never a silent merge).
+            pending_tokens: dict[str, str | None] = {}
+            legacy_tokens: dict[str, str | None] = {}
+            if canonical_mode:
+                tokens = sorted(
+                    {
+                        _pending_identity(lookup, values)
+                        for _, values, lookup, _ in prepared
+                        if not str(values.get("ac_id") or "").strip()
+                    }
+                )
+                legacy = sorted(
+                    {
+                        _legacy_identity(lookup, values)
+                        for _, values, lookup, _ in prepared
+                        if not str(values.get("ac_id") or "").strip()
+                    }
+                )
+                probe = sorted(set(tokens) | set(legacy))
+                if probe:
+                    cursor.execute("SELECT ac_id, ac_serial_number FROM acs WHERE ac_id = ANY(%s)", (probe,))
+                    found = {record["ac_id"]: record["ac_serial_number"] for record in cursor.fetchall()}
+                    pending_tokens = {token: found[token] for token in tokens if token in found}
+                    legacy_tokens = {token: found[token] for token in legacy if token in found}
 
             # ── Phase 3: validate + resolve location (memory only) ──
             entry_by_row: dict[int, dict] = {}
@@ -325,7 +483,17 @@ def import_assets():
             attr_by_ac: dict[str, dict] = {}
             pending_location = 0
             generated = 0
+            adopted = 0
+            legacy_adopted = 0
             generated_ids: set[str] = set()
+            # First-claim registry for legacy tokens: legacy token ->
+            # new-style token of the row that adopted it. A second row with
+            # the SAME room identity re-adopts (merge, still one asset); a
+            # row with a DIFFERENT room identity mints its own asset instead
+            # of hijacking the first unit. Every claim is recorded for the
+            # identity-collision section of the report.
+            legacy_claims: dict[str, str] = {}
+            legacy_events: dict[str, list[dict]] = {}
             resolve_cache: dict = {}
             merged: dict[str, dict] = {}
             seen_ids: dict[str, int] = {}
@@ -415,12 +583,80 @@ def import_assets():
                     # the report (§4); resolved rows emit no pending warning.
                     warnings.extend(_kept_source_warnings(row_number, row_res))
                     if not str(values.get("ac_id") or "").strip():
-                        values["ac_id"] = acs_parsers._derive_ac_id(
-                            resolved_room,
-                            lookup.get("unit_number"),
-                            values.get("ac_serial_number"),
-                            location_ref=f"{lookup.get('block_name')}-{lookup.get('department_name')}",
-                        )
+                        new_token = _pending_identity(lookup, values)
+                        legacy_token = _legacy_identity(lookup, values)
+                        if resolved_room is not None:
+                            derived = acs_parsers._derive_ac_id(
+                                resolved_room,
+                                lookup.get("unit_number"),
+                                values.get("ac_serial_number"),
+                                location_ref=f"{lookup.get('block_name')}-{lookup.get('department_name')}",
+                            )
+                        else:
+                            # No resolvable room: the row lives under its
+                            # room-aware pending token. When that token is
+                            # already stored the post-loop probe flips the
+                            # provisional "create" to "update" — no explicit
+                            # adoption needed.
+                            derived = new_token
+                        # Pending -> resolved re-import (idempotency): while no
+                        # room resolved this row lived under its unassigned
+                        # token. Now that the campus hierarchy exists the
+                        # room-derived id is NEW — adopting the stored token
+                        # updates the existing asset in place (stable ac_id,
+                        # asset_uuid and QR payload) instead of minting a
+                        # duplicate beside it. Both token shapes are honored:
+                        # the current room-aware token first (most specific),
+                        # then the legacy pre-``-R-`` shape the 243 incident
+                        # assets were stored under. The serial guard refuses
+                        # adoption when the stored token carries a DIFFERENT
+                        # serial than this row: that token belongs to another
+                        # physical unit, so the fresh identity is correct.
+                        # First-claim rule for legacy tokens: the first room
+                        # identity adopts; a second row with a DIFFERENT room
+                        # identity is a distinct unit and mints its own asset
+                        # instead of hijacking the first one.
+                        row_serial = values.get("ac_serial_number")
+                        for candidate, store, is_legacy in (
+                            (new_token, pending_tokens, False),
+                            (legacy_token, legacy_tokens, True),
+                        ):
+                            if candidate == derived or candidate not in store:
+                                continue
+                            if not _adoption_guard(store[candidate], row_serial):
+                                if is_legacy:
+                                    legacy_events.setdefault(legacy_token, []).append(
+                                        {
+                                            "row": row_number,
+                                            "new_token": new_token,
+                                            "outcome": "refused_serial",
+                                        }
+                                    )
+                                continue
+                            if is_legacy:
+                                owner = legacy_claims.get(candidate)
+                                if owner is not None and owner != new_token:
+                                    legacy_events.setdefault(legacy_token, []).append(
+                                        {
+                                            "row": row_number,
+                                            "new_token": new_token,
+                                            "outcome": "split_new_asset",
+                                        }
+                                    )
+                                    continue
+                                legacy_claims[candidate] = new_token
+                                legacy_adopted += 1
+                                legacy_events.setdefault(legacy_token, []).append(
+                                    {
+                                        "row": row_number,
+                                        "new_token": new_token,
+                                        "outcome": "adopted",
+                                    }
+                                )
+                            derived = candidate
+                            adopted += 1
+                            break
+                        values["ac_id"] = derived
                         generated += 1
                         generated_ids.add(values["ac_id"])
                     if acs_parsers._empty_to_none(values.get("asset_code")) is None:
@@ -623,6 +859,50 @@ def import_assets():
             # consistent by construction (no incremental counters to drift).
             entry_by_row = {entry["row"]: entry for entry in report_rows}
 
+            # Verified same-identity row sets: every final ac_id claimed by
+            # more than one row (in-file repeats and re-imports of a stored
+            # identity). These merged — exactly one asset per group.
+            duplicate_groups = [
+                {"ac_id": ac_id, "rows": sorted(rows)}
+                for ac_id, rows in sorted(rows_by_ac.items())
+                if len(rows) > 1
+            ]
+            # Legacy-token collision groups: rows whose pre-``-R-`` token was
+            # stored, split by room identity. `adopted` rows updated the
+            # stored asset in place; `split_new_asset` rows are distinct
+            # physical units that minted their own asset; `refused_serial`
+            # rows failed the serial guard. Final per-row actions come from
+            # the classification above, so dispositions reconcile with counts.
+            identity_collisions = []
+            for legacy_token in sorted(legacy_events):
+                claims = []
+                for event in legacy_events[legacy_token]:
+                    entry = entry_by_row.get(event["row"], {})
+                    claims.append(
+                        {
+                            "row": event["row"],
+                            "new_token": event["new_token"],
+                            "outcome": event["outcome"],
+                            "final_id": entry.get("ac_id"),
+                            "action": entry.get("action"),
+                        }
+                    )
+                identity_collisions.append(
+                    {
+                        "legacy_token": legacy_token,
+                        "stored": legacy_token in legacy_tokens,
+                        "adopted_by_row": next(
+                            (
+                                event["row"]
+                                for event in legacy_events[legacy_token]
+                                if event["outcome"] == "adopted"
+                            ),
+                            None,
+                        ),
+                        "claims": claims,
+                    }
+                )
+
             def _counts() -> dict:
                 return {
                     "imported": sum(1 for e in report_rows if e["action"] != "invalid"),
@@ -653,6 +933,10 @@ def import_assets():
                 "ambiguous_room_details": acs_parsers._room_error_details(ambiguous_rows),
                 "canonical_format": canonical_mode,
                 "generated_identities": generated,
+                "pending_identities_adopted": adopted,
+                "legacy_identities_adopted": legacy_adopted,
+                "duplicate_groups": duplicate_groups,
+                "identity_collisions": identity_collisions,
                 "attributes_recorded": sum(len(extras) for extras in attr_by_ac.values()),
             }
 

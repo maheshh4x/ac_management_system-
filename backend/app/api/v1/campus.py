@@ -205,6 +205,68 @@ def _derived_id(prefix: str, value: str) -> str:
     return f"{prefix}-{re.sub(r'[^A-Z0-9]+', '-', value.upper()).strip('-')}"
 
 
+def _clean_name(value: str | None) -> str | None:
+    """Trim-only cleaning for campus names (Option A, D1/D5): display text is
+    kept verbatim, outer whitespace stripped. Returns None for blank input so
+    callers reject whitespace-only names with a 400 — ``min_length=1`` alone
+    would accept ``"  "``."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _duplicate_name(
+    cur,
+    table: str,
+    name_column: str,
+    name: str,
+    id_column: str,
+    exclude_id: str | None,
+    parent_column: str | None = None,
+    parent_id: str | None = None,
+) -> bool:
+    """Scoped duplicate-name check (D5) on the SQL match-key fold (017/018):
+    True when a *different* row under the same parent folds to the same key.
+    Parent scoping mirrors the resolver (blocks per college, floors per block,
+    rooms per floor, departments global) — cross-parent duplicates stay legal
+    and are never merged. Index-backed by the 017 match-key indexes.
+    """
+    fold = location_sql.fold_sql(name_column)
+    conds = [f"{fold} = {location_sql.fold_sql('%s')}"]
+    params: list = [name]
+    if parent_column is not None:
+        conds.append(f"{parent_column} IS NOT DISTINCT FROM %s")
+        params.append(parent_id)
+    if exclude_id is not None:
+        conds.append(f"{id_column} != %s")
+        params.append(exclude_id)
+    cur.execute(f"SELECT 1 FROM {table} WHERE {' AND '.join(conds)} LIMIT 1", tuple(params))
+    return cur.fetchone() is not None
+
+
+def _rename_conflict(
+    cur,
+    level: str,
+    table: str,
+    name_column: str,
+    name: str,
+    id_column: str,
+    exclude_id: str,
+    parent_column: str | None = None,
+    parent_id: str | None = None,
+):
+    """409 response when renaming/moving to `name` collides in scope, else None."""
+    if _duplicate_name(cur, table, name_column, name, id_column, exclude_id, parent_column, parent_id):
+        scope = f" in {parent_column} '{parent_id}'" if parent_column is not None else ""
+        return error(
+            "DUPLICATE_NAME",
+            f"A {level} with this name already exists{scope}.",
+            409,
+        )
+    return None
+
+
 def _create_row(cur, table: str, id_column: str, explicit_id: str | None, values: dict, derived_id: str):
     row_id = explicit_id or derived_id
     payload = {id_column: row_id, **values}
@@ -252,6 +314,9 @@ def create_block():
         payload = BlockCreate(**(request.get_json(silent=True) or {}))
     except ValidationError as exc:
         return error("VALIDATION_ERROR", "Invalid block payload.", 400, exc.errors())
+    block_name = _clean_name(payload.block_name)
+    if not block_name:
+        return error("BLANK_NAME", "Block name must not be blank.", 400)
     try:
         conn = get_db_connection()
         try:
@@ -264,6 +329,13 @@ def create_block():
                 if cur.fetchone() is None:
                     cur.close()
                     return error("INVALID_COLLEGE", f"college_id '{payload.college_id}' does not exist.", 400)
+            # D4: derived ids are college-scoped so two colleges can each own
+            # a "Main Block". Unscoped creates keep the legacy BLOCK-<NAME>
+            # shape; every id ever issued stays valid (ids are immutable).
+            scope = (payload.college_id or "").strip()
+            derived = (
+                _derived_id("BLOCK", f"{scope} {block_name}") if scope else _derived_id("BLOCK", block_name)
+            )
             row = _create_row(
                 cur,
                 "blocks",
@@ -272,12 +344,12 @@ def create_block():
                 {
                     k: v
                     for k, v in {
-                        "block_name": payload.block_name,
+                        "block_name": block_name,
                         "college_id": payload.college_id,
                     }.items()
                     if v is not None
                 },
-                _derived_id("BLOCK", payload.block_name),
+                derived,
             )
             cur.close()
             conn.commit()
@@ -304,6 +376,11 @@ def update_block(block_id):
     fields = {k: v for k, v in payload.model_dump(mode="json").items() if v is not None}
     if not fields:
         return error("NO_FIELDS", "No fields provided for update.", 400)
+    if "block_name" in fields:
+        cleaned = _clean_name(fields["block_name"])
+        if not cleaned:
+            return error("BLANK_NAME", "Block name must not be blank.", 400)
+        fields["block_name"] = cleaned
     try:
         conn = get_db_connection()
         try:
@@ -313,6 +390,30 @@ def update_block(block_id):
                 if cur.fetchone() is None:
                     cur.close()
                     return error("INVALID_COLLEGE", "college_id does not reference an existing college.", 400)
+            if "block_name" in fields or "college_id" in fields:
+                # D5: renaming (or moving across colleges) must not collide
+                # with a sibling in the destination scope. The row has to
+                # exist for the scope lookup; a missing row falls through to
+                # the 404 below instead of a misleading 409.
+                cur.execute("SELECT block_name, college_id FROM blocks WHERE block_id = %s", (block_id,))
+                current = cur.fetchone()
+                if current is not None:
+                    name = fields.get("block_name", current["block_name"])
+                    scope = fields.get("college_id", current["college_id"])
+                    conflict = _rename_conflict(
+                        cur,
+                        "block",
+                        "blocks",
+                        "block_name",
+                        name,
+                        "block_id",
+                        block_id,
+                        "college_id",
+                        scope,
+                    )
+                    if conflict is not None:
+                        cur.close()
+                        return conflict
             before, after = _patch_row(cur, "blocks", "block_id", block_id, fields)
             cur.close()
             conn.commit()
@@ -367,6 +468,9 @@ def create_floor():
         payload = FloorCreate(**(request.get_json(silent=True) or {}))
     except ValidationError as exc:
         return error("VALIDATION_ERROR", "Invalid floor payload.", 400, exc.errors())
+    floor_name = _clean_name(payload.floor_name)
+    if not floor_name:
+        return error("BLANK_NAME", "Floor name must not be blank.", 400)
     try:
         conn = get_db_connection()
         try:
@@ -377,7 +481,7 @@ def create_floor():
                 return error("INVALID_BLOCK", f"block_id '{payload.block_id}' does not exist.", 400)
             values = {
                 "block_id": payload.block_id,
-                "floor_name": payload.floor_name,
+                "floor_name": floor_name,
             }
             if payload.floor_number is not None:
                 values["floor_number"] = payload.floor_number
@@ -387,7 +491,7 @@ def create_floor():
                 "floor_id",
                 payload.floor_id,
                 values,
-                f"{payload.block_id}-{_derived_id('FLR', payload.floor_name)}",
+                f"{payload.block_id}-{_derived_id('FLR', floor_name)}",
             )
             cur.close()
             conn.commit()
@@ -414,6 +518,11 @@ def update_floor(floor_id):
     fields = {k: v for k, v in payload.model_dump(mode="json").items() if v is not None}
     if not fields:
         return error("NO_FIELDS", "No fields provided for update.", 400)
+    if "floor_name" in fields:
+        cleaned = _clean_name(fields["floor_name"])
+        if not cleaned:
+            return error("BLANK_NAME", "Floor name must not be blank.", 400)
+        fields["floor_name"] = cleaned
     try:
         conn = get_db_connection()
         try:
@@ -423,6 +532,27 @@ def update_floor(floor_id):
                 if cur.fetchone() is None:
                     cur.close()
                     return error("INVALID_BLOCK", "block_id does not reference an existing block.", 400)
+            if "floor_name" in fields or "block_id" in fields:
+                # D5: same rename/move guard as blocks, scoped to the block.
+                cur.execute("SELECT floor_name, block_id FROM floors WHERE floor_id = %s", (floor_id,))
+                current = cur.fetchone()
+                if current is not None:
+                    name = fields.get("floor_name", current["floor_name"])
+                    scope = fields.get("block_id", current["block_id"])
+                    conflict = _rename_conflict(
+                        cur,
+                        "floor",
+                        "floors",
+                        "floor_name",
+                        name,
+                        "floor_id",
+                        floor_id,
+                        "block_id",
+                        scope,
+                    )
+                    if conflict is not None:
+                        cur.close()
+                        return conflict
             before, after = _patch_row(cur, "floors", "floor_id", floor_id, fields)
             cur.close()
             conn.commit()
@@ -477,6 +607,9 @@ def create_room():
         payload = RoomCreate(**(request.get_json(silent=True) or {}))
     except ValidationError as exc:
         return error("VALIDATION_ERROR", "Invalid room payload.", 400, exc.errors())
+    room_name = _clean_name(payload.room_name)
+    if not room_name:
+        return error("BLANK_NAME", "Room name must not be blank.", 400)
     try:
         conn = get_db_connection()
         try:
@@ -494,7 +627,7 @@ def create_room():
                         f"department_id '{payload.department_id}' does not exist.",
                         400,
                     )
-            values = {"floor_id": payload.floor_id, "room_name": payload.room_name}
+            values = {"floor_id": payload.floor_id, "room_name": room_name}
             if payload.department_id:
                 values["department_id"] = payload.department_id
             if payload.room_type:
@@ -505,7 +638,7 @@ def create_room():
                 "room_id",
                 payload.room_id,
                 values,
-                f"{payload.floor_id}-{_derived_id('RM', payload.room_name)}",
+                f"{payload.floor_id}-{_derived_id('RM', room_name)}",
             )
             cur.close()
             conn.commit()
@@ -532,6 +665,11 @@ def update_room(room_id):
     fields = {k: v for k, v in payload.model_dump(mode="json").items() if v is not None}
     if not fields:
         return error("NO_FIELDS", "No fields provided for update.", 400)
+    if "room_name" in fields:
+        cleaned = _clean_name(fields["room_name"])
+        if not cleaned:
+            return error("BLANK_NAME", "Room name must not be blank.", 400)
+        fields["room_name"] = cleaned
     try:
         conn = get_db_connection()
         try:
@@ -550,6 +688,27 @@ def update_room(room_id):
                         "department_id does not reference an existing department.",
                         400,
                     )
+            if "room_name" in fields or "floor_id" in fields:
+                # D5: same rename/move guard as blocks, scoped to the floor.
+                cur.execute("SELECT room_name, floor_id FROM rooms WHERE room_id = %s", (room_id,))
+                current = cur.fetchone()
+                if current is not None:
+                    name = fields.get("room_name", current["room_name"])
+                    scope = fields.get("floor_id", current["floor_id"])
+                    conflict = _rename_conflict(
+                        cur,
+                        "room",
+                        "rooms",
+                        "room_name",
+                        name,
+                        "room_id",
+                        room_id,
+                        "floor_id",
+                        scope,
+                    )
+                    if conflict is not None:
+                        cur.close()
+                        return conflict
             before, after = _patch_row(cur, "rooms", "room_id", room_id, fields)
             cur.close()
             conn.commit()
@@ -604,6 +763,9 @@ def create_department():
         payload = DepartmentCreate(**(request.get_json(silent=True) or {}))
     except ValidationError as exc:
         return error("VALIDATION_ERROR", "Invalid department payload.", 400, exc.errors())
+    department_name = _clean_name(payload.department_name)
+    if not department_name:
+        return error("BLANK_NAME", "Department name must not be blank.", 400)
     try:
         conn = get_db_connection()
         try:
@@ -613,8 +775,8 @@ def create_department():
                 "departments",
                 "department_id",
                 payload.department_id,
-                {"department_name": payload.department_name},
-                _derived_id("DEPT", payload.department_name),
+                {"department_name": department_name},
+                _derived_id("DEPT", department_name),
             )
             cur.close()
             conn.commit()
@@ -639,10 +801,30 @@ def update_department(department_id):
     except ValidationError as exc:
         return error("VALIDATION_ERROR", "Invalid department payload.", 400, exc.errors())
     fields = {"department_name": payload.department_name}
+    cleaned = _clean_name(fields["department_name"])
+    if not cleaned:
+        return error("BLANK_NAME", "Department name must not be blank.", 400)
+    fields["department_name"] = cleaned
     try:
         conn = get_db_connection()
         try:
             cur = conn.cursor(cursor_factory=RealDictCursor)
+            # D5: departments are global (no parent scope); renaming onto an
+            # existing name is a 409. A missing row falls through to the 404.
+            cur.execute("SELECT department_id FROM departments WHERE department_id = %s", (department_id,))
+            if cur.fetchone() is not None:
+                conflict = _rename_conflict(
+                    cur,
+                    "department",
+                    "departments",
+                    "department_name",
+                    cleaned,
+                    "department_id",
+                    department_id,
+                )
+                if conflict is not None:
+                    cur.close()
+                    return conflict
             before, after = _patch_row(cur, "departments", "department_id", department_id, fields)
             cur.close()
             conn.commit()
@@ -797,8 +979,9 @@ def list_location_aliases():
         where.append("entity_type = %s")
         params.append(entity_type)
     if needle:
+        # D6: escaped like every other name search (shared helper).
         where.append("alias ILIKE %s")
-        params.append(f"%{needle}%")
+        params.append(f"%{location_sql.escape_like(needle)}%")
     if not include_inactive:
         where.append("is_active")
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""

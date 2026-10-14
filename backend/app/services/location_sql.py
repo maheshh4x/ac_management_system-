@@ -132,8 +132,30 @@ def filter_match(level: str, value: str) -> tuple[str, list]:
     return clause, filter_params(value)
 
 
+def escape_like(value: str) -> str:
+    """Escape LIKE metacharacters (D6): the escape char first, then `%`/`_`_.
+
+    Backslash is PostgreSQL's default LIKE escape, so no ESCAPE clause is
+    needed and the pinned clause text is unchanged — only param values gain
+    backslashes. A user typing ``100%`` now matches the literal text instead
+    of acting as a wildcard.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def fold_sql(column_sql: str) -> str:
+    """SQL form of the shared match key (Option A, D1/D3): lower FIRST, then
+    strip every non-alphanumeric run — the same order as
+    ``location_resolver.normalize`` (lower-then-strip), which makes the two
+    ASCII-exact. (Stripping first would eat uppercase letters: ``[^a-z0-9]``
+    matches ``'A'``.) Backed by the 017 match-key indexes; see
+    migrations/017_match_key_indexes.sql.
+    """
+    return f"(REGEXP_REPLACE(LOWER({column_sql}), '[^a-z0-9]+', '', 'g'))"
+
+
 def filter_params(value: str) -> list:
-    pattern = f"%{value}%"
+    pattern = f"%{escape_like(value)}%"
     return [pattern, pattern, pattern]
 
 

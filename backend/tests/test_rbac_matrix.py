@@ -24,12 +24,12 @@ Three things this test has to get right (each learned the hard way):
   * **Auth-only routes.** ``require_auth`` sets
     ``_requires_permissions = ()`` when no ``require_permission`` follows, and
     an empty tuple means "no permission gate", not "grants nothing".
-  * **One subject per rule.** ``POST /auth/register-profile`` inserts a
-    ``status=PENDING`` profile for its caller, and ``profiles.role`` is
-    authoritative over the JWT claim — so a subject shared across rules would
-    have its role wiped halfway through the run and every later probe would
-    403 for an unrelated reason. Each rule gets its own subject, and the
-    fixture deletes them all.
+  * **One subject per rule.** ``POST /auth/register-profile`` inserts an
+    auto-approved ``status=APPROVED`` profile for its caller, and
+    ``profiles.role`` is authoritative over the JWT claim — so a subject
+    shared across rules would have its role wiped halfway through the run
+    and every later probe would 403 for an unrelated reason. Each rule gets
+    its own subject, and the fixture deletes them all.
 
 Plus one documented exception: ``_ROLE_SCOPED`` lists routes whose role check
 lives in the view body (``patch_me`` refusing VIEWER) rather than in a

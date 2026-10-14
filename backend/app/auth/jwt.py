@@ -274,7 +274,14 @@ def authenticate_request():
         claims = _verify_token(token)
     except jwt.ExpiredSignatureError:
         return error_response("TOKEN_EXPIRED", "Session has expired. Please log in again.", 401)
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as exc:
+        # Sanitized cause only (pyjwt messages never contain the token):
+        # distinguishes expired/issuer/audience/signature failures in logs.
+        logger.warning(
+            "token verification failed request_id=%s reason=%s",
+            getattr(g, "request_id", "-"),
+            f"{type(exc).__name__}: {exc}",
+        )
         return error_response("INVALID_TOKEN", "Invalid authentication token.", 401)
     except Exception:  # noqa: BLE001 - JWKS network failures etc.
         logger.warning(

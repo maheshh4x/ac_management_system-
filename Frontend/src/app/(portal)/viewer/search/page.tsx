@@ -122,6 +122,9 @@ export default function ViewerSearchPage() {
                 <p className="text-xs text-slate-400 mt-1">SN: {ac.serialNumber} • Last service: {ac.lastMaintenanceDate || '—'}</p>
                 <AcQrActions acId={ac.id} batchIds={acs.map((item) => item.id)} asset={ac} />
               </div>
+              <Link href={`/viewer/assets/${encodeURIComponent(ac.id)}`} className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors">
+                Details
+              </Link>
               <Link href="/campus" className="flex-shrink-0 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1">
                 <Eye size={12} /> Map
               </Link>

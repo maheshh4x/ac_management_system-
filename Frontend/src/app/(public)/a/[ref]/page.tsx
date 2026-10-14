@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PublicAssetView, type PublicAsset } from "./PublicAssetView";
+import { resolveApiBaseUrl } from "@/lib/api/config";
 
 export const metadata: Metadata = { title: "Asset — NITTTR ACMS" };
 
@@ -16,7 +17,9 @@ export default async function PublicAssetPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
+  // Same validated single source as the browser client (P1-A): production
+  // never silently targets localhost.
+  const apiBase = resolveApiBaseUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 
   let asset: PublicAsset | null = null;
   let failed = false;

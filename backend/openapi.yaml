@@ -363,6 +363,105 @@ paths:
         "201": {description: Created comment}
         "400": {description: Validation error}
         "404": {description: Work order not found}
+  /issue-reports:
+    get:
+      tags: [issue-reports]
+      summary: All reports including decided ones, newest first (APPROVE_REPORTS)
+      description: >
+        Administrative tracking so an approved report stays visible after it
+        leaves the pending queue. Optional ?status=PENDING_APPROVAL|APPROVED|
+        REJECTED filter.
+      responses:
+        "200": {description: All reports}
+        "400": {description: Invalid status filter}
+        "401": {description: Unauthenticated}
+        "403": {description: Forbidden}
+    post:
+      tags: [issue-reports]
+      summary: File an issue report (any authenticated role; starts PENDING_APPROVAL)
+      description: >
+        The reporter identity comes from the verified session. A supplied
+        idempotency_key makes retried submissions return the original report
+        instead of a duplicate. A report is never a work order at this point.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ac_id, category, description]
+              properties:
+                ac_id: {type: string}
+                category: {type: string, enum: [AC_NOT_COOLING, AC_NOT_STARTING, WATER_LEAKAGE, NOISE_VIBRATION, ELECTRICAL_POWER, OUTDOOR_UNIT, INDOOR_UNIT, PREVENTIVE_MAINTENANCE, OTHER]}
+                description: {type: string, minLength: 1, maxLength: 2000}
+                priority: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL], default: MEDIUM}
+                location_text: {type: string, maxLength: 500}
+                idempotency_key: {type: string, maxLength: 128}
+      responses:
+        "201": {description: Report filed with stable report_code}
+        "400": {description: Validation error}
+        "404": {description: Asset not found}
+  /issue-reports/mine:
+    get:
+      tags: [issue-reports]
+      summary: The reporter's own reports with current statuses
+      responses:
+        "200": {description: Own reports}
+        "401": {description: Unauthenticated}
+        "409": {description: User profile not provisioned}
+  /issue-reports/pending:
+    get:
+      tags: [issue-reports]
+      summary: Pending reports for review (APPROVE_REPORTS)
+      responses:
+        "200": {description: Pending reports, oldest first}
+        "401": {description: Unauthenticated}
+        "403": {description: Forbidden}
+  /issue-reports/{report_id}:
+    get:
+      tags: [issue-reports]
+      summary: One report with decision history and linked work order (owner or APPROVE_REPORTS)
+      parameters:
+        - {in: path, name: report_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Report detail}
+        "401": {description: Unauthenticated}
+        "404": {description: Report not found}
+  /issue-reports/{report_id}/approve:
+    post:
+      tags: [issue-reports]
+      summary: Approve a pending report and create exactly one SCHEDULED work order (APPROVE_REPORTS)
+      description: >
+        Atomic status flip plus work-order insert. Replays return the existing
+        job with already_processed=true; a failed insert leaves the report
+        PENDING_APPROVAL.
+      parameters:
+        - {in: path, name: report_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Work order created or already processed}
+        "403": {description: Forbidden}
+        "404": {description: Report not found}
+  /issue-reports/{report_id}/reject:
+    post:
+      tags: [issue-reports]
+      summary: Reject a pending report with a recorded reason (APPROVE_REPORTS)
+      parameters:
+        - {in: path, name: report_id, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1, maxLength: 1000}
+      responses:
+        "200": {description: Rejected report}
+        "400": {description: Reason required}
+        "403": {description: Forbidden}
+        "404": {description: Report not found}
+        "409": {description: Already decided}
   /reports/maintenance-trend:
     get:
       tags: [reports]
@@ -570,6 +669,131 @@ paths:
         "400": {description: Validation error}
         "404": {description: Not found}
         "409": {description: "INVALID_STATE (not PENDING) / PROFILE_NOT_FOUND"}
+  /assets/{ref}/sessions:
+    get:
+      tags: [sessions]
+      summary: List an asset's usage sessions, newest first (VIEW_ASSET)
+      parameters:
+        - {in: path, name: ref, required: true, schema: {type: string}}
+        - {in: query, name: limit, schema: {type: integer, default: 20}}
+      responses:
+        "200": {description: Session rows with durations}
+        "401": {description: Unauthenticated}
+        "404": {description: "No asset matches this reference"}
+  /sessions:
+    get:
+      tags: [sessions]
+      summary: Fleet-wide usage sessions for energy monitoring (VIEW_ASSET; technician mine-blocks, manager assigned-blocks scoping mirrors the dashboard)
+      parameters:
+        - {in: query, name: state, schema: {type: string, enum: [open, closed, all], default: all}}
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: department, schema: {type: string}}
+        - {in: query, name: manufacturer, schema: {type: string}}
+        - {in: query, name: limit, schema: {type: integer, default: 200}}
+      responses:
+        "200": {description: Session rows with asset labels, total, open_count and scope}
+        "400": {description: Invalid state/date/limit/filter}
+        "401": {description: Unauthenticated}
+  /assets/{ref}/sessions/start:
+    post:
+      tags: [sessions]
+      summary: Start a usage session — QR ON control (RECORD_USAGE_SESSION; at most one open session per asset)
+      parameters: [{in: path, name: ref, required: true, schema: {type: string}}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: {type: string, maxLength: 500}
+      responses:
+        "201": {description: Open session created (SESSION_STARTED audited)}
+        "401": {description: Unauthenticated}
+        "403": {description: Forbidden}
+        "404": {description: "No asset matches this reference"}
+        "409": {description: "ASSET_UNAVAILABLE (decommissioned/inactive) or SESSION_ALREADY_OPEN"}
+  /assets/{ref}/sessions/stop:
+    post:
+      tags: [sessions]
+      summary: Stop the open usage session — QR OFF control (RECORD_USAGE_SESSION)
+      parameters: [{in: path, name: ref, required: true, schema: {type: string}}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: {type: string, maxLength: 500}
+      responses:
+        "200": {description: Session closed with duration (SESSION_STOPPED audited)}
+        "401": {description: Unauthenticated}
+        "403": {description: Forbidden}
+        "404": {description: "No asset matches this reference"}
+        "409": {description: NO_OPEN_SESSION}
+  /assets/{ref}/energy:
+    get:
+      tags: [energy]
+      summary: Per-AC estimated electricity consumption, strict and explainable (VIEW_ASSET)
+      description: >
+        Baseline estimate (baseline-v1: rated input kW × hours × average load
+        factor) plus the rated-power upper bound, session by session, with
+        aligned weather context, midnight-split daily buckets, overlap
+        findings, estimate quality and assumptions. When an asset has no
+        usable rated input but does have cooling capacity, a PROVISIONAL
+        capacity-derived input (capacity × configured kW-per-ton rule,
+        model baseline-v1-capacity-derived) is used and clearly labelled —
+        it is never persisted as a rating and never mixed with rated-power
+        figures. The weather-demand indicator is descriptive only and never
+        changes the kWh figures. Cost appears only when
+        ENERGY_TARIFF_PER_KWH configures a valid tariff.
+      parameters:
+        - {in: path, name: ref, required: true, schema: {type: string}}
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: load_factor, schema: {type: number}}
+      responses:
+        "200": {description: Per-asset estimate payload}
+        "400": {description: Invalid date range or load factor}
+        "401": {description: Unauthenticated}
+        "404": {description: "No asset matches this reference"}
+  /energy/summary:
+    get:
+      tags: [energy]
+      summary: Aggregate estimated consumption across scope, built per-AC then summed (VIEW_ASSET)
+      description: >
+        Sessions are fetched bounded with asset specs in one join (one row
+        per session, never fanned out), estimated per asset, then grouped by
+        room/department/building plus campus totals and midnight-split daily
+        buckets. Technician mine-blocks and manager assigned-blocks scoping
+        mirrors the dashboard. Overlapping sessions are excluded from totals
+        and reported.
+      parameters:
+        - {in: query, name: from, schema: {type: string, format: date}}
+        - {in: query, name: to, schema: {type: string, format: date}}
+        - {in: query, name: load_factor, schema: {type: number}}
+        - {in: query, name: block, schema: {type: string}}
+        - {in: query, name: department, schema: {type: string}}
+        - {in: query, name: manufacturer, schema: {type: string}}
+        - {in: query, name: limit, schema: {type: integer, default: 1000}}
+      responses:
+        "200": {description: Aggregate estimate payload}
+        "400": {description: Invalid date range, load factor, limit or filter}
+        "401": {description: Unauthenticated}
+  /weather/now:
+    get:
+      tags: [energy]
+      summary: Current campus conditions from Open-Meteo with freshness (VIEW_ASSET)
+      description: >
+        Served from a process TTL cache (never one request per AC); provider
+        failure yields available:false rather than an error, so dashboard
+        rendering never depends on live provider availability.
+      responses:
+        "200": {description: Current conditions or an explicit unavailable marker}
+        "401": {description: Unauthenticated}
   /dashboard/summary:
     get:
       tags: [system]
@@ -700,6 +924,15 @@ paths:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
       responses: {"200": {description: User page}, "401": {description: Unauthenticated}, "400": {description: VALIDATION_ERROR / INVALID_PAGINATION}}
+  /users/assignable-technicians:
+    get:
+      tags: [users]
+      summary: Active approved technicians for the assignment picker (ASSIGN_MAINTENANCE)
+      description: >
+        Least-privilege alternative to the MANAGE_USERS user list: returns
+        only id/name/email of active, approved TECHNICIAN profiles so
+        FACILITY_MANAGER holders can assign jobs.
+      responses: {"200": {description: Technician list}, "401": {description: Unauthenticated}, "403": {description: Forbidden}}
   /users/{profile_id}:
     patch:
       tags: [users]

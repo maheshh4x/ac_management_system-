@@ -99,6 +99,22 @@ function resolveNextMe() {
   resolve(meResponse({ success: true, data: payload, request_id: 'req_test' }));
 }
 
+/** Reject the parked /me the way the backend rejects an unverifiable token. */
+function rejectNextMeUnauthorized() {
+  const resolve = meResolvers.shift();
+  if (!resolve) throw new Error('no pending /me request');
+  resolve(
+    new Response(
+      JSON.stringify({
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'Invalid authentication token.' },
+        request_id: 'req_test',
+      }),
+      { status: 401, headers: { 'Content-Type': 'application/json', 'X-Request-ID': 'req_test' } },
+    ),
+  );
+}
+
 function Probe() {
   const { user, refreshProfile, signIn } = useAuth();
   return (
@@ -106,6 +122,12 @@ function Probe() {
       <span data-testid="email">{user?.email ?? 'signed-out'}</span>
       <button onClick={() => void refreshProfile()}>refresh</button>
       <button onClick={() => void signIn('admin@example.test', 'secret')}>sign-in</button>
+      <button onClick={() => void signIn('admin@example.test', 'secret', '/a/uuid-1')}>
+        sign-in-next
+      </button>
+      <button onClick={() => void signIn('admin@example.test', 'secret', 'https://evil.example/x')}>
+        sign-in-evil
+      </button>
     </div>
   );
 }
@@ -306,5 +328,90 @@ describe('AuthContext — GET /api/v1/me dedupe', () => {
     fireEvent.click(screen.getByText('refresh'));
     await waitFor(() => expect(meUrls.length).toBe(2));
     expect(registerCalls.length).toBe(0);
+  });
+
+  it('returns to a safe post-login destination instead of the role home', async () => {
+    // QR-scan workflow: ?next=/a/<uuid> survives the login round-trip.
+    shared.session = null;
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('email').textContent).toBe('signed-out'),
+    );
+
+    fireEvent.click(screen.getByText('sign-in-next'));
+    await waitFor(() => expect(meResolvers.length).toBe(1));
+    resolveNextMe();
+    await waitFor(() =>
+      expect(shared.router.replace).toHaveBeenCalledWith('/a/uuid-1'),
+    );
+  });
+
+  it('falls back to the role home for an unsafe post-login destination', async () => {
+    shared.session = null;
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('email').textContent).toBe('signed-out'),
+    );
+
+    fireEvent.click(screen.getByText('sign-in-evil'));
+    await waitFor(() => expect(meResolvers.length).toBe(1));
+    resolveNextMe();
+    // Default PROFILE is an approved admin: open redirect rejected.
+    await waitFor(() =>
+      expect(shared.router.replace).toHaveBeenCalledWith('/admin/dashboard'),
+    );
+  });
+});
+
+describe('AuthContext — dead-token suppression (401 storm guard)', () => {
+  it('signs out once and never re-requests /me for a backend-rejected token', async () => {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+
+    // Bootstrap issues the single /me; the backend rejects the token.
+    await waitFor(() => expect(meResolvers.length).toBe(1));
+    rejectNextMeUnauthorized();
+    await waitFor(() =>
+      expect(screen.getByTestId('email').textContent).toBe('signed-out'),
+    );
+    // No client retry: Supabase refresh yields no session, so the single
+    // request stands (a retry would double every 401 while broken).
+    expect(meUrls.length).toBe(1);
+
+    // The repeat engines — same-token SIGNED_IN / TOKEN_REFRESHED events,
+    // remount-equivalent refreshes — must all stay silent for this token.
+    act(() => {
+      shared.authCallback?.('SIGNED_IN', { access_token: 'tok' });
+    });
+    await act(async () => {});
+    act(() => {
+      shared.authCallback?.('TOKEN_REFRESHED', { access_token: 'tok' });
+    });
+    await act(async () => {});
+    expect(meUrls.length).toBe(1);
+
+    // A genuinely NEW token (real rotation / fresh login) still reaches the
+    // server — suppression is per-token, never a blanket block.
+    act(() => {
+      shared.authCallback?.('TOKEN_REFRESHED', { access_token: 'tok-2' });
+    });
+    await waitFor(() => expect(meUrls.length).toBe(2));
+    await waitFor(() => expect(meResolvers.length).toBe(1));
+    resolveNextMe();
+    await waitFor(() =>
+      expect(screen.getByTestId('email').textContent).toBe('admin@example.test'),
+    );
+    expect(meUrls.length).toBe(2);
   });
 });

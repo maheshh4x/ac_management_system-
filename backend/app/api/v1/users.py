@@ -154,8 +154,13 @@ def patch_me():
 def register_profile():
     """Idempotent: creates the profiles row for the JWT subject if missing.
 
-    role is always VIEWER/status always PENDING on creation — the client can
-    only *request* a role, never grant one. Existing rows are returned as-is.
+    Automatic onboarding: a verified identity (Supabase Auth owns credentials
+    and only verified sessions reach here) is granted the least-privileged
+    role VIEWER with status APPROVED immediately — no routine Super Admin
+    approval step. The client can only *request* a non-privileged role, never
+    grant one. A legacy PENDING row that was never reviewed (no approver, no
+    approval timestamp) is completed the same way when its owner calls this
+    endpoint; REJECTED rows and reviewed rows are returned untouched.
     """
     user = get_current_user()
     try:
@@ -167,12 +172,34 @@ def register_profile():
         with get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             row = _fetch_profile(cur, user["id"])
             if row is not None:
-                return success(row)  # idempotent no-op
+                if (
+                    row.get("status") == "PENDING"
+                    and row.get("approved_by") is None
+                    and row.get("approved_at") is None
+                ):
+                    # Compatibility: accounts created before automatic
+                    # onboarding (DB trigger / older register-profile) that no
+                    # approver ever reviewed are completed on next contact.
+                    cur.execute(
+                        """UPDATE profiles SET status = 'APPROVED', approved_at = NOW(),
+                               updated_at = NOW()
+                            WHERE id = %s""",
+                        (user["id"],),
+                    )
+                    row = _fetch_profile(cur, user["id"])
+                    audit(
+                        "USER_APPROVED",
+                        "profile",
+                        user["id"],
+                        old_values={"status": "PENDING"},
+                        new_values={"status": "APPROVED", "mode": "automatic-onboarding"},
+                    )
+                return success(row)
             cur.execute(
                 """INSERT INTO profiles
-                       (id, email, name, role, status, requested_role,
+                       (id, email, name, role, status, approved_at, requested_role,
                         staff_id, phone, designation, reporting_manager_id)
-                   VALUES (%s, %s, %s, 'VIEWER', 'PENDING', %s, %s, %s, %s, %s)
+                   VALUES (%s, %s, %s, 'VIEWER', 'APPROVED', NOW(), %s, %s, %s, %s, %s)
                    ON CONFLICT (id) DO NOTHING""",
                 (
                     user["id"],
@@ -186,7 +213,13 @@ def register_profile():
                 ),
             )
             row = _fetch_profile(cur, user["id"])
-        audit("PROFILE_REGISTERED", "profile", user["id"])
+        audit(
+            "PROFILE_REGISTERED",
+            "profile",
+            user["id"],
+            None,
+            {"role": "VIEWER", "status": "APPROVED", "mode": "automatic-onboarding"},
+        )
         return success(row, 201)
     except Exception:  # noqa: BLE001
         logger.exception("register-profile failed request_id=%s", getattr(g, "request_id", "-"))
@@ -249,8 +282,6 @@ def approve_user(profile_id):
             target = _fetch_profile(cur, profile_id)
             if target is None:
                 return error("NOT_FOUND", "Profile not found.", 404)
-            if target.get("status") == "APPROVED":
-                return error("ALREADY_APPROVED", "This account is already approved.", 409)
 
             actor_blocks = (user.get("profile") or {}).get("assigned_blocks")
             allowed, reason_code = evaluate_approval(user.get("role"), actor_blocks, user.get("id"), target)
@@ -267,6 +298,12 @@ def approve_user(profile_id):
                 final_role = target.get("requested_role") or "VIEWER"
             else:
                 final_role = payload.role or target.get("requested_role") or "VIEWER"
+
+            if target.get("status") == "APPROVED" and final_role == target.get("role"):
+                # Nothing to grant: already approved with the role that would
+                # be granted. A different requested/payload role falls through
+                # to the role-elevation update below (still audited).
+                return error("ALREADY_APPROVED", "This account is already approved.", 409)
 
             cur.execute(
                 """UPDATE profiles SET role = %s, status = 'APPROVED',
@@ -335,6 +372,31 @@ def reject_user(profile_id):
 
 
 # ── user administration ─────────────────────────────────────────────────────
+
+
+@users_v1_bp.route("/api/v1/users/assignable-technicians", methods=["GET"])
+@require_auth
+@require_permission("ASSIGN_MAINTENANCE")
+def assignable_technicians():
+    """Technician picker for the assignment workflow. The full user list
+    needs MANAGE_USERS (SUPER_ADMIN only), which would leave FACILITY_MANAGER
+    holders — who may assign jobs — with an empty dropdown. This narrow,
+    least-privilege listing returns only active, approved TECHNICIAN profiles
+    (id + display fields), nothing else."""
+    try:
+        with get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, email FROM profiles"
+                " WHERE role = 'TECHNICIAN' AND is_active IS NOT FALSE AND status = 'APPROVED'"
+                " ORDER BY COALESCE(NULLIF(name, ''), email) ASC LIMIT 200"
+            )
+            items = [
+                {"id": str(r["id"]), "name": r["name"], "email": r["email"]} for r in cur.fetchall()
+            ]
+        return success({"technicians": items, "total": len(items)})
+    except Exception:  # noqa: BLE001
+        logger.exception("assignable technicians failed request_id=%s", getattr(g, "request_id", "-"))
+        return error("TECHNICIANS_LIST_FAILED", "Unable to list technicians.", 500)
 
 
 @users_v1_bp.route("/api/v1/users", methods=["GET"])

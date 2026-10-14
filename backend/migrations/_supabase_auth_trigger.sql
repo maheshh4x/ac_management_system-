@@ -3,8 +3,10 @@
 -- Supabase side). Run this by hand in the Supabase SQL editor.
 --
 -- Purpose: every new Supabase Auth signup gets a `profiles` row with role
--- VIEWER and status PENDING. The role is NEVER taken from signup metadata;
--- the requested role (if the client sent one) is recorded for the approver.
+-- VIEWER and status APPROVED (automatic onboarding — no routine approver
+-- step). The role is NEVER taken from signup metadata; only a non-privileged
+-- requested role (TECHNICIAN/VIEWER) is recorded for a later elevation
+-- decision, anything else is dropped to NULL.
 --
 -- The Flask fallback `POST /api/v1/auth/register-profile` provides the same
 -- guarantee when triggers cannot be used (both paths are idempotent and the
@@ -17,14 +19,17 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-    INSERT INTO public.profiles (id, email, name, role, status, requested_role)
+    INSERT INTO public.profiles (id, email, name, role, status, approved_at, requested_role)
     VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name'),
-        'VIEWER',          -- role is assigned by an approver, never by the client
-        'PENDING',
-        NULLIF(NEW.raw_user_meta_data->>'requested_role', '')
+        'VIEWER',          -- role is assigned by policy/admins, never by the client
+        'APPROVED',        -- automatic onboarding: verified identity, least privilege
+        NOW(),
+        CASE WHEN NULLIF(NEW.raw_user_meta_data->>'requested_role', '') IN ('TECHNICIAN', 'VIEWER')
+             THEN NEW.raw_user_meta_data->>'requested_role'
+        END
     )
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;

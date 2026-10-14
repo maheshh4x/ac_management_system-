@@ -116,13 +116,17 @@ export default function CampusOverlay() {
                       });
                     } else if (res.rooms.length > 0) {
                       const room = res.rooms[0];
-                      setState({
-                         level: 'Room',
-                         selectedBuildingId: room.id.split('-').slice(0, 2).join('-'), // naive building id extraction
-                         selectedFloorId: room.floorId,
-                         selectedRoomId: room.id,
-                         selectedAcId: null
-                      })
+                      // D4-safe parent derivation (see GlobalSearch): look the
+                      // building up from the floor instead of dash-surgery.
+                      mod.blockIdForFloorId(room.floorId ?? '').then((buildingId) =>
+                        setState({
+                           level: 'Room',
+                           selectedBuildingId: buildingId,
+                           selectedFloorId: room.floorId,
+                           selectedRoomId: room.id,
+                           selectedAcId: null
+                        }),
+                      );
                     }
                   });
                 });
@@ -177,7 +181,7 @@ export default function CampusOverlay() {
                        <span className="text-sm text-slate-600">Total ACs</span>
                        <span className="font-medium text-slate-900">
                          {facets
-                           ? (facets.block.find(entry => entry.value === activeBuilding.name)?.count ?? 0)
+                           ? (facets.block.find(entry => entry.value.toLowerCase() === activeBuilding.name.toLowerCase())?.count ?? 0)
                            : '—'}
                        </span>
                     </div>

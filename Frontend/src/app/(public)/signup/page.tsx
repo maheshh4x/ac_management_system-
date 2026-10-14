@@ -11,7 +11,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Role } from '@/lib/permissions';
 
 const roles: { value: Role; label: string }[] = [
-  { value: 'FACILITY_MANAGER', label: 'Manager' },
   { value: 'TECHNICIAN', label: 'Technician' },
   { value: 'VIEWER', label: 'Viewer' },
 ];
@@ -43,7 +42,7 @@ export default function SignupPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<'approved-flow' | 'confirm-email' | null>(null);
-  const needsStaffDetails = form.role === 'TECHNICIAN' || form.role === 'FACILITY_MANAGER';
+  const needsStaffDetails = form.role === 'TECHNICIAN';
   const isTechnician = form.role === 'TECHNICIAN';
 
   const update = <K extends keyof SignupForm>(key: K, value: SignupForm[K]) => setForm(current => ({ ...current, [key]: value }));
@@ -79,20 +78,20 @@ export default function SignupPage() {
     <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl">
         <CheckCircle2 className="mx-auto text-emerald-600" size={48} />
-        <h1 className="mt-4 text-2xl font-bold text-slate-900">
-          {submitted === 'confirm-email' ? 'Confirm your email' : 'Request submitted'}
+        <h1 className="text-2xl font-bold">
+          {submitted === 'confirm-email' ? 'Confirm your email' : 'Account ready'}
         </h1>
         <p className="mt-2 text-slate-600">
           {submitted === 'confirm-email'
-            ? 'We sent a confirmation link to your email address. Confirm it, then sign in — your account becomes active once an approver accepts it.'
-            : 'Your request has been sent for approval. You can sign in after an approver accepts your account.'}
+            ? 'We sent a confirmation link to your email address. Confirm it, then sign in — viewer access is granted automatically.'
+            : 'Your account was created with viewer access. You can sign in right away — no approval wait.'}
         </p>
         <Link href="/login" className="mt-6 inline-flex items-center gap-2 font-semibold text-blue-600"><ArrowLeft size={16} /> Return to sign in</Link>
       </div>
     </main>
   );
 
-  return <main className="min-h-screen bg-slate-50 px-4 py-8 sm:py-10"><div className="mx-auto max-w-3xl"><Link href="/login" className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600"><ArrowLeft size={16} /> Back to sign in</Link><div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"><div className="bg-slate-900 p-6 text-white"><div className="flex items-center gap-3"><ShieldCheck className="text-blue-400" /><div><h1 className="text-2xl font-bold">Create an account</h1><p className="mt-1 text-sm text-slate-300">All new accounts require approval before sign in.</p></div></div></div><form onSubmit={submit} className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-2">
+  return <main className="min-h-screen bg-slate-50 px-4 py-8 sm:py-10"><div className="mx-auto max-w-3xl"><Link href="/login" className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600"><ArrowLeft size={16} /> Back to sign in</Link><div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"><div className="bg-slate-900 p-6 text-white"><div className="flex items-center gap-3"><ShieldCheck className="text-blue-400" /><div><h1 className="text-2xl font-bold">Create an account</h1><p className="mt-1 text-sm text-slate-300">Verified accounts get viewer access immediately. Technician access is requested here and granted by an administrator.</p></div></div></div><form onSubmit={submit} className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-2">
     {error && <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-medium text-red-600">{error}</div>}
     <Field label="Full Name" icon={UserRound} className="sm:col-span-2"><input required value={form.name} onChange={event => update('name', event.target.value)} className={inputClass} placeholder="Full name" autoComplete="name" /></Field>
     <Field label="Email address" icon={Mail}><input required type="email" value={form.email} onChange={event => update('email', event.target.value)} className={inputClass} placeholder="you@college.com" autoComplete="email" /></Field>
@@ -102,7 +101,7 @@ export default function SignupPage() {
     <p className="-mt-3 text-xs text-slate-500 sm:col-span-2">Use at least 8 characters for your password.</p>
     <Field label="Role" icon={Users} className="sm:col-span-2"><select required value={form.role} onChange={event => changeRole(event.target.value as Role)} className={inputClass}><option value="">Select role</option>{roles.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}</select></Field>
 
-    {needsStaffDetails && <div className="sm:col-span-2 border-t border-slate-100 pt-5"><div className="mb-4 flex items-center gap-2"><Wrench className="text-blue-600" size={18} /><h2 className="font-semibold text-slate-900">{isTechnician ? 'Technician Details' : 'Manager Details'}</h2></div><div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {needsStaffDetails && <div className="sm:col-span-2 border-t border-slate-100 pt-5"><div className="mb-4 flex items-center gap-2"><Wrench className="text-blue-600" size={18} /><h2 className="font-semibold text-slate-900">Technician Details</h2></div><div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
       <Field label="Employee / Staff ID" icon={KeyRound}><input required value={form.staffId} onChange={event => update('staffId', event.target.value)} className={inputClass} placeholder="Staff ID" /></Field>
       <Field label="Designation" icon={BriefcaseBusiness}><input value={form.designation} onChange={event => update('designation', event.target.value)} className={inputClass} placeholder={isTechnician ? 'AC Technician' : 'Facility Manager'} /></Field>
       <p className="text-xs text-slate-500 sm:col-span-2">Department, assigned blocks and reporting manager are set by the approver when your account is accepted.</p>
