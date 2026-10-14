@@ -31,6 +31,7 @@ the API runs (no drift between measurement and shipping queries).
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 
@@ -334,56 +335,78 @@ def build_due_for_maintenance_query(args: dict, limit: int = DUE_JSON_LIMIT) -> 
 
 
 def build_trend_rows_query(args: dict) -> tuple[str, list]:
-    """SQL + params for the per-row monthly-trend fetch (one row per work order)."""
+    """SQL + params for the per-row monthly-trend leg (one payload row per
+    work order). A UNION ALL leg: ``(1 AS section, payload AS jsonb)``."""
     conds, params = _wo_scope(args)
     where = ["COALESCE(w.scheduled_date, w.completed_at::date) IS NOT NULL", *conds]
     sql = (
-        "SELECT COALESCE(w.scheduled_date, w.completed_at::date) AS bucket_date,"
-        " w.maintenance_type"
+        "SELECT 1 AS section,"
+        " jsonb_build_object('bucket_date',"
+        " COALESCE(w.scheduled_date, w.completed_at::date)::text,"
+        " 'maintenance_type', w.maintenance_type) AS payload"
         f" {WO_JOINS} WHERE {' AND '.join(where)}"
     )
     return sql, params
 
 
 def build_trend_stats_query(args: dict) -> tuple[str, list]:
-    """SQL + params for the trend report's aggregate stats block."""
+    """SQL + params for the trend aggregate-stats leg (exactly one payload
+    row). A UNION ALL leg: ``(2 AS section, payload AS jsonb)``."""
     conds, params = _wo_scope(args)
     where_sql = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql = (
-        "SELECT"
-        " COUNT(*) AS total,"
-        " COUNT(*) FILTER (WHERE w.status = 'SCHEDULED') AS scheduled,"
-        " COUNT(*) FILTER (WHERE w.status = 'ASSIGNED') AS assigned,"
-        " COUNT(*) FILTER (WHERE w.status = 'IN_PROGRESS') AS in_progress,"
-        " COUNT(*) FILTER (WHERE w.status = 'COMPLETED') AS completed,"
-        " COUNT(*) FILTER (WHERE w.status = 'CANCELLED') AS cancelled,"
-        " COUNT(*) FILTER (WHERE"
+        "SELECT 2 AS section, jsonb_build_object("
+        " 'total', COUNT(*),"
+        " 'scheduled', COUNT(*) FILTER (WHERE w.status = 'SCHEDULED'),"
+        " 'assigned', COUNT(*) FILTER (WHERE w.status = 'ASSIGNED'),"
+        " 'in_progress', COUNT(*) FILTER (WHERE w.status = 'IN_PROGRESS'),"
+        " 'completed', COUNT(*) FILTER (WHERE w.status = 'COMPLETED'),"
+        " 'cancelled', COUNT(*) FILTER (WHERE w.status = 'CANCELLED'),"
+        " 'mtd_count', COUNT(*) FILTER (WHERE"
         "  (w.scheduled_date >= date_trunc('month', CURRENT_DATE)::date"
         "   AND w.scheduled_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date)"
         "  OR (w.completed_at >= date_trunc('month', CURRENT_DATE)"
         "      AND w.completed_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')"
-        " ) AS mtd_count,"
-        " COUNT(*) FILTER (WHERE w.status IN ('SCHEDULED','ASSIGNED','IN_PROGRESS')"
-        "  AND w.scheduled_date IS NOT NULL AND w.scheduled_date < CURRENT_DATE) AS overdue_count,"
-        " COUNT(*) FILTER (WHERE w.status IN ('SCHEDULED','ASSIGNED','IN_PROGRESS')"
-        "  AND w.scheduled_date IS NOT NULL AND w.scheduled_date >= CURRENT_DATE) AS upcoming_count,"
-        " COALESCE(ROUND(AVG(GREATEST(1, w.completed_at::date - w.scheduled_date))"
+        " ),"
+        " 'overdue_count', COUNT(*) FILTER (WHERE w.status IN ('SCHEDULED','ASSIGNED','IN_PROGRESS')"
+        "  AND w.scheduled_date IS NOT NULL AND w.scheduled_date < CURRENT_DATE),"
+        " 'upcoming_count', COUNT(*) FILTER (WHERE w.status IN ('SCHEDULED','ASSIGNED','IN_PROGRESS')"
+        "  AND w.scheduled_date IS NOT NULL AND w.scheduled_date >= CURRENT_DATE),"
+        " 'mttr_days', COALESCE(ROUND(AVG(GREATEST(1, w.completed_at::date - w.scheduled_date))"
         "  FILTER (WHERE w.status = 'COMPLETED' AND w.completed_at IS NOT NULL"
-        "          AND w.scheduled_date IS NOT NULL)::numeric, 1), 0) AS mttr_days"
+        "          AND w.scheduled_date IS NOT NULL)::numeric, 1), 0)"
+        " ) AS payload"
         f" {WO_JOINS}{where_sql}"
     )
     return sql, params
 
 
 def build_trend_priority_query(args: dict) -> tuple[str, list]:
-    """SQL + params for the trend report's priority distribution."""
+    """SQL + params for the priority-distribution leg. A UNION ALL leg:
+    ``(3 AS section, payload AS jsonb)``."""
     conds, params = _wo_scope(args)
     where_sql = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql = (
-        "SELECT COALESCE(NULLIF(w.priority, ''), 'MEDIUM') AS priority, COUNT(*) AS n"
-        f" {WO_JOINS}{where_sql} GROUP BY 1"
+        "SELECT 3 AS section,"
+        " jsonb_build_object('priority',"
+        " COALESCE(NULLIF(w.priority, ''), 'MEDIUM'), 'n', COUNT(*)) AS payload"
+        f" {WO_JOINS}{where_sql}"
+        " GROUP BY COALESCE(NULLIF(w.priority, ''), 'MEDIUM')"
     )
     return sql, params
+
+
+def build_trend_union_query(args: dict) -> tuple[str, list]:
+    """One-round-trip maintenance-trend fetch: the three legs above as a
+    single UNION ALL (same pattern as the dashboard summary/analytics
+    consolidations). Params are the three legs' params concatenated."""
+    rows_sql, rows_params = build_trend_rows_query(args)
+    stats_sql, stats_params = build_trend_stats_query(args)
+    prio_sql, prio_params = build_trend_priority_query(args)
+    return (
+        f"({rows_sql}) UNION ALL ({stats_sql}) UNION ALL ({prio_sql})",
+        rows_params + stats_params + prio_params,
+    )
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
@@ -412,9 +435,9 @@ def maintenance_trend():
     priority_counts = {p: 0 for p in PRIORITY_ORDER}
     stats: dict = {}
 
-    rows_sql, rows_params = build_trend_rows_query(args)
-    stats_sql, stats_params = build_trend_stats_query(args)
-    prio_sql, prio_params = build_trend_priority_query(args)
+    # The individual leg builders stay importable for seed_perf.py EXPLAIN
+    # (see module docstring); the endpoint runs only the union below.
+    union_sql, union_params = build_trend_union_query(args)
 
     try:
         conn = get_db_connection()
@@ -424,27 +447,30 @@ def maintenance_trend():
                 cur.close()
                 return error("NOT_SUPPORTED", "Work-order table not migrated yet.", 409)
 
-            # ── monthly trend (per-row bucketing) ────────────────────────────
-            cur.execute(rows_sql, rows_params)
+            # ── one round trip: rows + stats + priority legs ──────────────────
+            cur.execute(union_sql, union_params)
             for row in cur.fetchall():
-                key = _month_key(row["bucket_date"])
-                entry = trend.get(key)
-                if entry is None:
-                    entry = extras.setdefault(key, _blank_month(key))
-                entry["total"] += 1
-                bucket = _type_bucket(row["maintenance_type"])
-                if bucket is not None:
-                    entry[bucket] += 1
-
-            # ── aggregate stats ──────────────────────────────────────────────
-            cur.execute(stats_sql, stats_params)
-            stats = dict(cur.fetchone())
-
-            # ── priority distribution ────────────────────────────────────────
-            cur.execute(prio_sql, prio_params)
-            for row in cur.fetchall():
-                if row["priority"] in priority_counts:
-                    priority_counts[row["priority"]] = row["n"]
+                payload = row["payload"]
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                section = row["section"]
+                if section == 1:
+                    # ── monthly trend (per-row bucketing) ────────────────────
+                    key = _month_key(date.fromisoformat(payload["bucket_date"]))
+                    entry = trend.get(key)
+                    if entry is None:
+                        entry = extras.setdefault(key, _blank_month(key))
+                    entry["total"] += 1
+                    bucket = _type_bucket(payload.get("maintenance_type"))
+                    if bucket is not None:
+                        entry[bucket] += 1
+                elif section == 2:
+                    # ── aggregate stats ──────────────────────────────────────
+                    stats = payload
+                elif section == 3:
+                    # ── priority distribution ────────────────────────────────
+                    if payload["priority"] in priority_counts:
+                        priority_counts[payload["priority"]] = payload["n"]
             cur.close()
         finally:
             conn.close()

@@ -153,11 +153,11 @@ def _paginate(cur, select_sql: str, base_sql: str, params: list, page: int, page
 
 def _page_args():
     try:
-        page = max(1, int((request.args.get("page") or "1")))
+        page = max(1, int(request.args.get("page") or "1"))
     except ValueError:
         return None, error("INVALID_PAGINATION", "page must be a positive integer.", 400)
     try:
-        page_size = min(100, max(1, int((request.args.get("page_size") or "20"))))
+        page_size = min(100, max(1, int(request.args.get("page_size") or "20")))
     except ValueError:
         return None, error("INVALID_PAGINATION", "page_size must be a positive integer.", 400)
     return (page, page_size), None

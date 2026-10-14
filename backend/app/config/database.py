@@ -41,9 +41,15 @@ def _get_pool() -> pool.ThreadedConnectionPool:
             if _pool is None or _pool.closed:
                 statement_timeout_ms = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "30000"))
                 options = f"-c statement_timeout={statement_timeout_ms}" f" -c application_name=acms-api"
+                minconn = int(os.getenv("DB_POOL_MIN", "2"))
+                maxconn = int(os.getenv("DB_POOL_MAX", "16"))
+                keepalives = int(os.getenv("DB_KEEPALIVES", "1"))
+                keepalives_idle = int(os.getenv("DB_KEEPALIVES_IDLE", "30"))
+                keepalives_interval = int(os.getenv("DB_KEEPALIVES_INTERVAL", "10"))
+                keepalives_count = int(os.getenv("DB_KEEPALIVES_COUNT", "3"))
                 _pool = pool.ThreadedConnectionPool(
-                    minconn=int(os.getenv("DB_POOL_MIN", "1")),
-                    maxconn=int(os.getenv("DB_POOL_MAX", "10")),
+                    minconn=minconn,
+                    maxconn=maxconn,
                     host=os.getenv("DB_HOST"),
                     port=os.getenv("DB_PORT"),
                     database=os.getenv("DB_NAME"),
@@ -51,11 +57,16 @@ def _get_pool() -> pool.ThreadedConnectionPool:
                     password=os.getenv("DB_PASSWORD"),
                     sslmode=os.getenv("DB_SSLMODE", "prefer"),
                     options=options,
+                    keepalives=keepalives,
+                    keepalives_idle=keepalives_idle,
+                    keepalives_interval=keepalives_interval,
+                    keepalives_count=keepalives_count,
                 )
                 logger.info(
-                    "PostgreSQL connection pool created (min=%s, max=%s)",
-                    os.getenv("DB_POOL_MIN", "1"),
-                    os.getenv("DB_POOL_MAX", "10"),
+                    "PostgreSQL connection pool created (min=%s, max=%s, keepalives=%s)",
+                    minconn,
+                    maxconn,
+                    keepalives,
                 )
     return _pool
 

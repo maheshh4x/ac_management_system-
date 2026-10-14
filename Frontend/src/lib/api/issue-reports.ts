@@ -135,6 +135,7 @@ export function usePendingReports(enabled = true) {
   return useQuery({
     queryKey: issueReportKeys.pending,
     enabled,
+    staleTime: 60_000,
     placeholderData: keepPreviousData,
     queryFn: () =>
       api<{
@@ -151,6 +152,7 @@ export function useAllReports(enabled = true) {
   return useQuery({
     queryKey: issueReportAllKey,
     enabled,
+    staleTime: 60_000,
     placeholderData: keepPreviousData,
     queryFn: () =>
       api<{

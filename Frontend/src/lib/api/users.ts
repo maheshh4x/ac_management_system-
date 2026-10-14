@@ -57,13 +57,14 @@ export function useAssignableTechnicians(enabled = true) {
 
 export function useApprovals(
   status: "PENDING" | "APPROVED" | "REJECTED" = "PENDING",
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; staleTime?: number } = {},
 ) {
   return useQuery({
     queryKey: userKeys.approvals(status),
     queryFn: () => apiList<ApiProfile>(`/api/v1/approvals?status=${status}`),
     // Callers without MANAGE_USERS would just collect a 403; disable instead.
     enabled: options.enabled ?? true,
+    staleTime: options.staleTime ?? 60_000,
   });
 }
 

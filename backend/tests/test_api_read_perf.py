@@ -134,8 +134,9 @@ def test_facets_budget(client, count_stmts):
 def test_dashboard_summary_budget(client, count_stmts):
     statements, wall = _measure(client, count_stmts, "/api/v1/dashboard/summary")
     print(f"/api/v1/dashboard/summary: {statements} stmts, {wall:.1f} ms")
-    # profile + KPIs + MTTR + dimensions (UNION ALL) + overdue + my_jobs.
-    assert statements <= 6, statements
+    # profile + KPIs (MTTR scalar + my-jobs scalars folded in) + dimensions
+    # (UNION ALL) + overdue rows.
+    assert statements <= 4, statements
 
 
 def test_campus_tree_budget(client, count_stmts):
@@ -148,6 +149,5 @@ def test_campus_tree_budget(client, count_stmts):
 def test_maintenance_trend_budget(client, count_stmts):
     statements, wall = _measure(client, count_stmts, "/api/v1/reports/maintenance-trend")
     print(f"/api/v1/reports/maintenance-trend: {statements} stmts, {wall:.1f} ms")
-    # profile + the grouped trend queries (rows/stats/priority/meta) — this
-    # endpoint was never in the slow list; the budget only pins its shape.
-    assert statements <= 5, statements
+    # profile + table guard + ONE consolidated UNION ALL (rows/stats/priority).
+    assert statements <= 3, statements

@@ -70,16 +70,6 @@ def _validate_unit_link(cur, ac_id: str, unit_role: str | None, parent_ac_id: st
                 400,
             )
     return None
-    """Return the conflicting asset_code when ``serial`` already exists
-    (Phase 3 task 2: duplicate non-empty serials are a 409 with the code)."""
-    if not serial:
-        return None
-    cur.execute(
-        "SELECT asset_code, ac_id FROM acs WHERE ac_serial_number = %s AND ac_id <> COALESCE(%s, '') LIMIT 1",
-        (serial, exclude_ac_id),
-    )
-    row = cur.fetchone()
-    return (row["asset_code"] or row["ac_id"]) if row else None
 
 
 @assets_write_v1_bp.route("/api/v1/assets", methods=["POST"])

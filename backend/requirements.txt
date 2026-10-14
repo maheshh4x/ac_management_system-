@@ -27,4 +27,3 @@ gunicorn==23.0.0; sys_platform != "win32"
 # Phase 6 (QR): printable A4 label sheets — GET /api/v1/assets/qr/batch
 reportlab>=4.0
 requests==2.34.2
-

@@ -52,8 +52,8 @@ def _parse_range(args) -> tuple[date, date]:
     try:
         parsed_from = date.fromisoformat(raw_from) if raw_from else default_from
         parsed_to = date.fromisoformat(raw_to) if raw_to else today
-    except ValueError:
-        raise ValueError("from/to must be YYYY-MM-DD dates.")
+    except ValueError as err:
+        raise ValueError("from/to must be YYYY-MM-DD dates.") from err
     if parsed_from > parsed_to:
         raise ValueError("from must not be after to.")
     return parsed_from, parsed_to
@@ -61,8 +61,6 @@ def _parse_range(args) -> tuple[date, date]:
 
 def _load_factor(args) -> tuple[float, list[str], bool]:
     """(value, assumptions, used_default) — explicit param or env default."""
-    import os
-
     raw = (args.get("load_factor") or "").strip() or None
     if raw is None:
         value, assumptions = em.configured_load_factor()

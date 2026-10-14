@@ -386,12 +386,16 @@ def list_all_sessions():
         try:
             cur = conn.cursor(cursor_factory=RealDictCursor)
             cur.execute(
-                "SELECT COUNT(*) AS total FROM ac_usage_sessions s"
+                "SELECT COUNT(*) AS total,"
+                " COUNT(*) FILTER (WHERE s.ended_at IS NULL) AS open_count"
+                " FROM ac_usage_sessions s"
                 f" JOIN acs a ON a.ac_id = s.ac_id {location_sql.LOCATION_JOIN}"
                 f" {location_sql.EFFECTIVE_JOINS} WHERE {where_sql}",
                 tuple(params),
             )
-            total = cur.fetchone()["total"]
+            count_row = cur.fetchone()
+            total = count_row["total"]
+            open_count = count_row["open_count"]
             cur.execute(
                 "SELECT s.id, s.ac_id, s.started_by, s.started_at, s.ended_at,"
                 " EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::int"
@@ -418,13 +422,6 @@ def list_all_sessions():
                     row["capacity_ton"] = float(row["capacity_ton"])
                 if row.get("power_rating_kw") is not None:
                     row["power_rating_kw"] = float(row["power_rating_kw"])
-            cur.execute(
-                "SELECT COUNT(*) AS open_count FROM ac_usage_sessions s"
-                f" JOIN acs a ON a.ac_id = s.ac_id {location_sql.LOCATION_JOIN}"
-                f" {location_sql.EFFECTIVE_JOINS} WHERE {where_sql} AND s.ended_at IS NULL",
-                tuple(params),
-            )
-            open_count = cur.fetchone()["open_count"]
             cur.close()
         finally:
             conn.close()

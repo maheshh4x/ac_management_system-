@@ -191,6 +191,61 @@ def dashboard_summary():
         " + (SUM(CASE WHEN d.department_id IS NOT NULL THEN 1 ELSE 0 END))"
     )
 
+    # MTTR (hours) from completed work orders, restricted to the
+    # caller's scope when a scope applies (technician: own jobs). Folded
+    # into the KPI SELECT as a scalar subquery (single-row outer query, so
+    # no fanout) instead of a second round trip. Empty table → AVG NULL →
+    # COALESCE 0, exactly as the standalone query behaved.
+    mttr_conds = [
+        "w.status = 'COMPLETED'",
+        "w.started_at IS NOT NULL",
+        "w.completed_at IS NOT NULL",
+    ]
+    mttr_params: list = []
+    if technician:
+        mttr_conds.append("w.technician_id = %s")
+        mttr_params.append(user.get("id"))
+    elif role == "FACILITY_MANAGER" and assigned:
+        mttr_conds.append(
+            "EXISTS (SELECT 1 FROM maintenance_work_orders w2"
+            " JOIN acs a2 ON a2.ac_id = w2.ac_id"
+            " LEFT JOIN asset_locations al2 ON al2.ac_id = a2.ac_id"
+            " LEFT JOIN rooms r2 ON r2.room_id = COALESCE(al2.room_id, a2.room_id)"
+            " LEFT JOIN floors f2 ON f2.floor_id = COALESCE(al2.floor_id, r2.floor_id)"
+            " LEFT JOIN blocks b2 ON b2.block_id = COALESCE(al2.block_id, f2.block_id)"
+            " WHERE w2.id = w.id AND b2.block_id = ANY(%s))"
+        )
+        mttr_params.append(assigned)
+    mttr_sql = (
+        "(SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (w.completed_at - w.started_at)) / 3600.0), 0)::float"
+        " FROM maintenance_work_orders w WHERE " + " AND ".join(mttr_conds) + ")"
+    )
+    # Technician focus: their own job counts (open = not terminal). Folded
+    # via LATERAL (one row) instead of a second round trip; only joined for
+    # technicians viewing detail. `status` can never be 'ESCALATED' (CHECK
+    # in migration 002): escalate() keeps the status and records
+    # `escalated_at` (008), so count that column — the old status filter
+    # reported 0 escalations forever.
+    mj_select = ""
+    mj_params: list = []
+    if technician and include_detail:
+        mj_select = (
+            ", (SELECT COUNT(*) FILTER (WHERE status IN ('SCHEDULED','ASSIGNED','IN_PROGRESS'))"
+            " FROM maintenance_work_orders WHERE technician_id = %s) AS mj_open,"
+            " (SELECT COUNT(*) FILTER (WHERE status = 'IN_PROGRESS')"
+            " FROM maintenance_work_orders WHERE technician_id = %s) AS mj_in_progress,"
+            " (SELECT COUNT(*) FILTER (WHERE escalated_at IS NOT NULL)"
+            " FROM maintenance_work_orders WHERE technician_id = %s) AS mj_escalated,"
+            " (SELECT COUNT(*) FILTER (WHERE status NOT IN ('COMPLETED','CANCELLED')"
+            "  AND scheduled_date < CURRENT_DATE)"
+            " FROM maintenance_work_orders WHERE technician_id = %s) AS mj_overdue,"
+            " (SELECT COUNT(*) FILTER (WHERE status = 'COMPLETED')"
+            " FROM maintenance_work_orders WHERE technician_id = %s) AS mj_completed"
+        )
+        mj_params.extend([user.get("id")] * 5)
+    # Textual placeholder order: SELECT-list scalars first, then WHERE.
+    kpi_params = mttr_params + mj_params + params
+
     try:
         conn = get_db_connection()
         try:
@@ -210,45 +265,24 @@ def dashboard_summary():
                        COUNT(*) FILTER (WHERE a.next_service_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 7) AS due_7d,
                        COUNT(*) FILTER (WHERE a.next_service_date < CURRENT_DATE) AS overdue,
                        COALESCE(ROUND(100.0 * ({completeness}) / NULLIF(9.0 * COUNT(*), 0)), 0)::int
-                           AS completeness_pct
+                           AS completeness_pct,
+                       {mttr_sql} AS mttr_hours{mj_select}
                 {JOINS}
                 WHERE {where_sql}
                 """,
-                params,
+                kpi_params,
             )
             kpis = dict(cur.fetchone())
-            # MTTR (hours) from completed work orders, restricted to the
-            # caller's scope when a scope applies (technician: own jobs).
-            kpis["mttr_hours"] = 0.0
-            try:
-                mttr_where = [
-                    "w.status = 'COMPLETED'",
-                    "w.started_at IS NOT NULL",
-                    "w.completed_at IS NOT NULL",
-                ]
-                mttr_params: list = []
-                if technician:
-                    mttr_where.append("w.technician_id = %s")
-                    mttr_params.append(user.get("id"))
-                elif role == "FACILITY_MANAGER" and assigned:
-                    mttr_where.append(
-                        "EXISTS (SELECT 1 FROM maintenance_work_orders w2"
-                        " JOIN acs a2 ON a2.ac_id = w2.ac_id"
-                        " LEFT JOIN asset_locations al2 ON al2.ac_id = a2.ac_id"
-                        " LEFT JOIN rooms r2 ON r2.room_id = COALESCE(al2.room_id, a2.room_id)"
-                        " LEFT JOIN floors f2 ON f2.floor_id = COALESCE(al2.floor_id, r2.floor_id)"
-                        " LEFT JOIN blocks b2 ON b2.block_id = COALESCE(al2.block_id, f2.block_id)"
-                        " WHERE w2.id = w.id AND b2.block_id = ANY(%s))"
-                    )
-                    mttr_params.append(assigned)
-                cur.execute(
-                    "SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (w.completed_at - w.started_at)) / 3600.0), 0)::float AS mttr"
-                    " FROM maintenance_work_orders w WHERE " + " AND ".join(mttr_where),
-                    mttr_params,
-                )
-                kpis["mttr_hours"] = float(cur.fetchone()["mttr"] or 0.0)
-            except Exception:
-                logger.debug("mttr unavailable (work-order table not migrated?)", exc_info=True)
+            kpis["mttr_hours"] = float(kpis.pop("mttr_hours") or 0.0)
+            my_jobs = None
+            if technician and include_detail:
+                my_jobs = {
+                    "open": kpis.pop("mj_open"),
+                    "in_progress": kpis.pop("mj_in_progress"),
+                    "escalated": kpis.pop("mj_escalated"),
+                    "overdue": kpis.pop("mj_overdue"),
+                    "completed": kpis.pop("mj_completed"),
+                }
             # The six dimension groupings share one scan of the same slice:
             # a single UNION ALL round trip instead of six sequential ones
             # (each leg keeps its original GROUP BY/ORDER BY/LIMIT — only
@@ -330,29 +364,7 @@ def dashboard_summary():
                                 o[k] = v.isoformat()
                 except Exception:
                     overdue_rows = []
-            # Technician focus: their own job counts (open = not terminal).
-            my_jobs = None
-            if technician and include_detail:
-                try:
-                    # `status` can never be 'ESCALATED' (CHECK in migration
-                    # 002): escalate() keeps the status and records
-                    # `escalated_at` (008), so count that column — the old
-                    # status filter reported 0 escalations forever.
-                    cur.execute(
-                        "SELECT COUNT(*) FILTER (WHERE status IN"
-                        "  ('SCHEDULED','ASSIGNED','IN_PROGRESS')) AS open,"
-                        " COUNT(*) FILTER (WHERE status = 'IN_PROGRESS') AS in_progress,"
-                        " COUNT(*) FILTER (WHERE escalated_at IS NOT NULL) AS escalated,"
-                        " COUNT(*) FILTER (WHERE status NOT IN ('COMPLETED','CANCELLED')"
-                        "  AND scheduled_date < CURRENT_DATE) AS overdue,"
-                        " COUNT(*) FILTER (WHERE status = 'COMPLETED') AS completed"
-                        " FROM maintenance_work_orders WHERE technician_id = %s",
-                        (user.get("id"),),
-                    )
-                    my_jobs = dict(cur.fetchone())
-                except Exception:
-                    logger.debug("my_jobs unavailable", exc_info=True)
-                    my_jobs = None
+            # Technician focus already folded into the KPI row above.
             cur.close()
         finally:
             conn.close()
@@ -512,89 +524,78 @@ def dashboard_analytics():
             }
             year_range = {"min": row["year_min"], "max": row["year_max"]}
 
-            cur.execute(
-                "SELECT a.installation_year AS year, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
-                " GROUP BY 1 ORDER BY 1",
-                tuple(params),
-            )
-            install_by_year = [{"year": r["year"], "count": r["n"]} for r in cur.fetchall()]
-
             # D2: manufacturer variants share one fold bucket (MIN display).
+            # company×year + department×year heatmap in ONE round trip
+            # (sections 7, 8) instead of two sequential aggregates.
             company_sel, company_grp = _dim_select("company")
             cur.execute(
-                f"SELECT {company_sel} AS company,"
-                " a.installation_year AS year, COUNT(*) AS n"
+                f"(SELECT 7 AS section, {company_sel} AS d1,"
+                " a.installation_year AS d2, COUNT(*) AS n"
                 f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
-                f" GROUP BY {company_grp}, 2 ORDER BY 2, 1 LIMIT 1000",
-                tuple(params),
+                f" GROUP BY {company_grp}, 3 ORDER BY 3, 2 LIMIT 1000)"
+                " UNION ALL "
+                f"(SELECT 8 AS section, {_ANALYTICS_DIMS['department']} AS d1,"
+                " a.installation_year AS d2, COUNT(*) AS n"
+                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
+                " GROUP BY 2, 3 ORDER BY 3, 2 LIMIT 2000)",
+                tuple(params) + tuple(params),
             )
+            sectioned = [dict(r) for r in cur.fetchall()]
             company_by_year = [
-                {"company": r["company"], "year": r["year"], "count": r["n"]} for r in cur.fetchall()
+                {"company": r["d1"], "year": r["d2"], "count": r["n"]}
+                for r in sectioned if r["section"] == 7
             ]
-
-            cur.execute(
-                f"SELECT {_ANALYTICS_DIMS['department']} AS department, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql}"
-                " GROUP BY 1 ORDER BY n DESC LIMIT 50",
-                tuple(params),
-            )
-            departments = [{"department": r["department"], "count": r["n"]} for r in cur.fetchall()]
-
-            cur.execute(
-                f"SELECT {_ANALYTICS_DIMS['block']} AS block, b.block_id AS block_id, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql}"
-                " GROUP BY 1, 2 ORDER BY n DESC LIMIT 50",
-                tuple(params),
-            )
-            blocks = [
-                {"block": r["block"], "block_id": r["block_id"], "count": r["n"]} for r in cur.fetchall()
-            ]
-
-            cur.execute(
-                f"SELECT {_ANALYTICS_DIMS['department']} AS department,"
-                " a.installation_year AS year, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL"
-                " GROUP BY 1, 2 ORDER BY 2, 1 LIMIT 2000",
-                tuple(params),
-            )
             heatmap = [
-                {"department": r["department"], "year": r["year"], "count": r["n"]} for r in cur.fetchall()
+                {"department": r["d1"], "year": r["d2"], "count": r["n"]}
+                for r in sectioned if r["section"] == 8
             ]
 
-            cur.execute(
-                "SELECT DISTINCT a.ac_capacity_ton AS ton"
-                f" {JOINS} WHERE {where_sql} AND a.ac_capacity_ton IS NOT NULL"
-                " ORDER BY 1",
-                tuple(params),
-            )
-            capacities = [_analytics_num(r["ton"]) for r in cur.fetchall()]
+            # Consolidate single-dimension queries into a single UNION ALL round trip
+            # (sections: 1=year, 2=dept, 3=block, 4=status, 5=type, 6=capacity)
+            dim_legs = [
+                f"(SELECT 1 AS section, NULL::text AS k, a.installation_year::float8 AS v, COUNT(*) AS n, NULL::text AS bid"
+                f" {JOINS} WHERE {where_sql} AND a.installation_year IS NOT NULL GROUP BY 3 ORDER BY v ASC)",
+                f"(SELECT 2 AS section, {_ANALYTICS_DIMS['department']} AS k, NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid"
+                f" {JOINS} WHERE {where_sql} GROUP BY 2 ORDER BY n DESC LIMIT 50)",
+                f"(SELECT 3 AS section, {_ANALYTICS_DIMS['block']} AS k, NULL::float8 AS v, COUNT(*) AS n, b.block_id AS bid"
+                f" {JOINS} WHERE {where_sql} GROUP BY 2, 5 ORDER BY n DESC LIMIT 50)",
+                f"(SELECT 4 AS section, a.operational_status AS k, NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid"
+                f" {JOINS} WHERE {where_sql} GROUP BY 2 ORDER BY n DESC)",
+                f"(SELECT 5 AS section, COALESCE(a.ac_type, 'Other') AS k, NULL::float8 AS v, COUNT(*) AS n, NULL::text AS bid"
+                f" {JOINS} WHERE {where_sql} GROUP BY 2 ORDER BY n DESC LIMIT 20)",
+                f"(SELECT 6 AS section, NULL::text AS k, a.ac_capacity_ton::float8 AS v, COUNT(*) AS n, NULL::text AS bid"
+                f" {JOINS} WHERE {where_sql} AND a.ac_capacity_ton IS NOT NULL GROUP BY 3 ORDER BY v ASC)",
+            ]
+            cur.execute(" UNION ALL ".join(dim_legs), tuple(params) * 6)
+            dim_sections: dict[int, list[dict]] = {i: [] for i in range(1, 7)}
+            for r in cur.fetchall():
+                dim_sections[r["section"]].append(dict(r))
 
-            cur.execute(
-                "SELECT a.operational_status AS status, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql}"
-                " GROUP BY 1 ORDER BY n DESC",
-                tuple(params),
-            )
-            by_status = [{"status": r["status"], "count": r["n"]} for r in cur.fetchall()]
-
-            cur.execute(
-                "SELECT COALESCE(a.ac_type, 'Other') AS type, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql}"
-                " GROUP BY 1 ORDER BY n DESC LIMIT 20",
-                tuple(params),
-            )
-            by_type = [{"type": r["type"], "count": r["n"]} for r in cur.fetchall()]
-
-            cur.execute(
-                "SELECT a.ac_capacity_ton AS capacity_ton, COUNT(*) AS n"
-                f" {JOINS} WHERE {where_sql} AND a.ac_capacity_ton IS NOT NULL"
-                " GROUP BY 1 ORDER BY 1",
-                tuple(params),
-            )
+            install_by_year = [
+                {"year": int(r["v"]), "count": r["n"]}
+                for r in sorted(dim_sections[1], key=lambda r: (r["v"] is None, r["v"] or 0))
+            ]
+            departments = [
+                {"department": r["k"], "count": r["n"]}
+                for r in sorted(dim_sections[2], key=lambda r: -r["n"])
+            ]
+            blocks = [
+                {"block": r["k"], "block_id": r["bid"], "count": r["n"]}
+                for r in sorted(dim_sections[3], key=lambda r: -r["n"])
+            ]
+            by_status = [
+                {"status": r["k"], "count": r["n"]}
+                for r in sorted(dim_sections[4], key=lambda r: -r["n"])
+            ]
+            by_type = [
+                {"type": r["k"], "count": r["n"]}
+                for r in sorted(dim_sections[5], key=lambda r: -r["n"])
+            ]
             by_capacity = [
-                {"capacity_ton": _analytics_num(r["capacity_ton"]), "count": r["n"]} for r in cur.fetchall()
+                {"capacity_ton": _analytics_num(r["v"]), "count": r["n"]}
+                for r in sorted(dim_sections[6], key=lambda r: (r["v"] is None, r["v"] or 0))
             ]
+            capacities = [r["capacity_ton"] for r in by_capacity]
 
             explorer = None
             if dim1 is not None:

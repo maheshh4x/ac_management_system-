@@ -88,8 +88,15 @@ export function useAssets(query: AssetQuery, enabled = true) {
 /**
  * Every row matching the filters (reports/valuations need the full slice).
  * The list endpoint caps page_size at 200, so this walks the pages — at
- * most 10 requests (2 000 rows) to bound the work.
+ * most 10 requests (2 000 rows) to bound the work. Page 1 reveals
+ * total_pages; the remaining pages fetch with bounded concurrency (4 in
+ * flight) instead of one round trip at a time. Order is page-ascending and
+ * any page failure rejects the whole query — partial data is never
+ * presented as complete.
  */
+const ALL_ASSETS_MAX_PAGES = 10;
+const ALL_ASSETS_CONCURRENCY = 4;
+
 export function useAllAssets(
   filters: Omit<AssetQuery, "page" | "pageSize" | "sort">,
   enabled = true,
@@ -98,17 +105,25 @@ export function useAllAssets(
     queryKey: assetKeys.allRows(filters),
     enabled,
     queryFn: async (): Promise<ExtendedAC[]> => {
-      const collected: ExtendedAC[] = [];
-      let page = 1;
-      let totalPages = 1;
-      do {
-        const raw = await apiList<ApiAsset>(
-          `/api/v1/assets${toSearchParams({ ...filters, page, pageSize: 200 })}`,
+      const first = await apiList<ApiAsset>(
+        `/api/v1/assets${toSearchParams({ ...filters, page: 1, pageSize: 200 })}`,
+      );
+      const collected = first.items.map(mapAsset);
+      const rest: number[] = [];
+      for (let page = 2; page <= first.pagination.total_pages && page <= ALL_ASSETS_MAX_PAGES; page++) {
+        rest.push(page);
+      }
+      for (let i = 0; i < rest.length; i += ALL_ASSETS_CONCURRENCY) {
+        const batch = await Promise.all(
+          rest.slice(i, i + ALL_ASSETS_CONCURRENCY).map(async (page) => {
+            const raw = await apiList<ApiAsset>(
+              `/api/v1/assets${toSearchParams({ ...filters, page, pageSize: 200 })}`,
+            );
+            return raw.items.map(mapAsset);
+          }),
         );
-        collected.push(...raw.items.map(mapAsset));
-        totalPages = raw.pagination.total_pages;
-        page += 1;
-      } while (page <= totalPages && page <= 10);
+        for (const rows of batch) collected.push(...rows);
+      }
       return collected;
     },
   });

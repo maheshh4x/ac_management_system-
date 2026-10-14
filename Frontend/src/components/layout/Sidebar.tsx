@@ -32,6 +32,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   // retired the localStorage mock store that used to back this number).
   const approvals = useApprovals('PENDING', {
     enabled: hasPermission(user?.role || null, 'MANAGE_USERS'),
+    staleTime: 120_000,
   });
   const pendingCount = approvals.data?.pagination.total ?? 0;
   // Issue-report queue badge (SUPER_ADMIN only — the only role that sees

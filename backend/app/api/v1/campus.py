@@ -16,6 +16,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 import uuid
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -95,11 +97,23 @@ def _storage_request(
         return exc.code, exc.read()
 
 
+_SIGNED_URL_CACHE: dict[str, tuple[float, str]] = {}
+_SIGNED_URL_LOCK = threading.Lock()
+_SIGNED_URL_TTL_SECONDS = 2700.0  # 45 minutes (tokens valid for 60m)
+
+
 def _sign_read_url(path: str) -> str | None:
     """Signed READ url for a stored object (1 h). None when storage is not
     configured or Supabase errors — the tree still returns photo metadata."""
     if not _storage_configured() or not path:
         return None
+    now = time.monotonic()
+    with _SIGNED_URL_LOCK:
+        cached = _SIGNED_URL_CACHE.get(path)
+        if cached:
+            ts, url = cached
+            if now - ts < _SIGNED_URL_TTL_SECONDS:
+                return url
     bucket = os.getenv("BUILDING_PHOTOS_BUCKET", "building-photos")
     try:
         status, body = _storage_request(
@@ -111,7 +125,10 @@ def _sign_read_url(path: str) -> str | None:
         signed = (json.loads(body or b"{}") or {}).get("signedURL")
         if not signed:
             return None
-        return f"{os.getenv('SUPABASE_URL')}/storage/v1{signed}"
+        res = f"{os.getenv('SUPABASE_URL')}/storage/v1{signed}"
+        with _SIGNED_URL_LOCK:
+            _SIGNED_URL_CACHE[path] = (now, res)
+        return res
     except (URLError, ValueError, OSError):
         logger.exception("sign photo url failed")
         return None

@@ -24,7 +24,7 @@ from flask import Blueprint, g, request
 from psycopg2.extras import RealDictCursor
 from pydantic import ValidationError
 
-from app.auth.jwt import get_current_user, require_auth
+from app.auth.jwt import get_current_user, invalidate_profile_cache, require_auth
 from app.auth.permissions import require_permission
 from app.config.database import get_db_connection
 from app.core import error, paginated, success
@@ -139,6 +139,7 @@ def patch_me():
             row = cur.fetchone()
         if row is None:
             return error("NOT_FOUND", "Profile not found.", 404)
+        invalidate_profile_cache(user["id"])
         audit("PROFILE_UPDATE", "profile", user["id"], new_values=fields)
         return success(_serialize_profile(dict(row)))
     except Exception:  # noqa: BLE001
@@ -187,6 +188,7 @@ def register_profile():
                         (user["id"],),
                     )
                     row = _fetch_profile(cur, user["id"])
+                    invalidate_profile_cache(user["id"])
                     audit(
                         "USER_APPROVED",
                         "profile",
@@ -213,6 +215,7 @@ def register_profile():
                 ),
             )
             row = _fetch_profile(cur, user["id"])
+        invalidate_profile_cache(user["id"])
         audit(
             "PROFILE_REGISTERED",
             "profile",
@@ -313,6 +316,7 @@ def approve_user(profile_id):
                 (final_role, user["id"], profile_id),
             )
             notify_mod.notify_account_approved(target["id"], final_role, conn)
+        invalidate_profile_cache(profile_id)
         audit(
             "USER_APPROVED",
             "profile",
@@ -358,6 +362,7 @@ def reject_user(profile_id):
                 (payload.reason, profile_id),
             )
             notify_mod.notify_account_rejected(target["id"], payload.reason, conn)
+        invalidate_profile_cache(profile_id)
         audit(
             "USER_REJECTED",
             "profile",
@@ -499,6 +504,7 @@ def patch_user(profile_id):
                     target["id"],
                     conn,
                 )
+        invalidate_profile_cache(profile_id)
         audit(
             "USER_UPDATED",
             "profile",

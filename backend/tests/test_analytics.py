@@ -406,10 +406,10 @@ def test_viewer_gets_aggregates_with_counts_scope(client, population):
 
 def test_analytics_statement_budget(client, population, _count_stmts):
     statements, wall_ms = _measure(client, _count_stmts, "/api/v1/dashboard/analytics?dim1=company&dim2=year")
-    assert statements <= 12, statements
+    assert statements <= 5, statements
     print(f"\nanalytics (explorer) statements={statements} wall_ms={wall_ms:.1f}")
     statements, wall_ms = _measure(client, _count_stmts, "/api/v1/dashboard/analytics")
-    assert statements <= 11, statements
+    assert statements <= 4, statements
     print(f"analytics (sections) statements={statements} wall_ms={wall_ms:.1f}")
 
 

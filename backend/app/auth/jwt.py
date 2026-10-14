@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 import uuid as uuid_mod
 from functools import wraps
@@ -140,10 +141,25 @@ def _get_jwks_provider() -> _JwksProvider | None:
     return _jwks_provider
 
 
+_PROFILE_CACHE: dict[str, tuple[float, dict | None]] = {}
+_PROFILE_CACHE_LOCK = threading.Lock()
+_PROFILE_CACHE_TTL_SECONDS = 60.0
+
+
+def invalidate_profile_cache(user_id: str | None = None) -> None:
+    """Drop cached profile state. If user_id is None, clears all cached profiles."""
+    with _PROFILE_CACHE_LOCK:
+        if user_id:
+            _PROFILE_CACHE.pop(user_id, None)
+        else:
+            _PROFILE_CACHE.clear()
+
+
 def reset_caches() -> None:
-    """Drop cached JWKS state. Used by tests; safe to call anytime."""
+    """Drop cached JWKS and profile state. Used by tests; safe to call anytime."""
     global _jwks_provider
     _jwks_provider = None
+    invalidate_profile_cache()
 
 
 def get_current_user():
@@ -151,10 +167,19 @@ def get_current_user():
 
 
 def _lookup_profile(user_id: str):
-    """Best-effort server-side profile lookup. Returns None when the table or
-    the Phase-1.3 columns are not migrated yet (fail-open is acceptable here:
-    without the DB the request will fail on data access anyway, and the JWT
-    claims fallback below never grants a role the server didn't sign)."""
+    """Best-effort server-side profile lookup with in-memory TTL caching.
+    Returns None when the table or the Phase-1.3 columns are not migrated yet
+    (fail-open is acceptable here: without the DB the request will fail on data
+    access anyway, and the JWT claims fallback below never grants a role the
+    server didn't sign)."""
+    now = time.monotonic()
+    with _PROFILE_CACHE_LOCK:
+        cached = _PROFILE_CACHE.get(user_id)
+        if cached:
+            timestamp, data = cached
+            if now - timestamp < _PROFILE_CACHE_TTL_SECONDS:
+                return data
+
     try:
         from app.config.database import get_db_connection
 
@@ -197,10 +222,13 @@ def _lookup_profile(user_id: str):
         finally:
             conn.close()
         if not row:
+            with _PROFILE_CACHE_LOCK:
+                _PROFILE_CACHE[user_id] = (now, None)
             return None
-        if isinstance(row, dict):
-            return row
-        return dict(zip(keys, row, strict=False))
+        res = row if isinstance(row, dict) else dict(zip(keys, row, strict=False))
+        with _PROFILE_CACHE_LOCK:
+            _PROFILE_CACHE[user_id] = (now, res)
+        return res
     except Exception as exc:  # noqa: BLE001 - table may not exist yet
         if type(exc).__name__ == "UndefinedTable":
             logger.debug("profile lookup skipped: profiles table not migrated yet")
