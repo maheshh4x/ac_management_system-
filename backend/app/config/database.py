@@ -33,6 +33,31 @@ logger = logging.getLogger(__name__)
 _pool: pool.ThreadedConnectionPool | None = None
 _pool_lock = threading.Lock()
 
+# Bounded pool-acquisition permits (deployment-reliability audit, P0).
+# psycopg2's ThreadedConnectionPool.getconn() blocks indefinitely when every
+# pooled connection is checked out, so one slow dependency could park a
+# gthread worker until Gunicorn's 30 s timeout killed it — surfacing as
+# multi-second p95 latency with no actionable error. A counting semaphore
+# sized to maxconn bounds that wait: a request that cannot get a connection
+# within DB_POOL_ACQUIRE_TIMEOUT_S fails fast with PoolAcquireTimeout
+# (mapped by the existing generic handlers to the endpoint's usual 5xx
+# envelope — response semantics unchanged) instead of hanging a worker.
+# Permits are released exactly once alongside the connection, on both the
+# clean-return and the discard (close=True) paths.
+_pool_permits: threading.Semaphore | None = None
+_pool_permits_size: int | None = None
+
+
+class PoolAcquireTimeout(TimeoutError):
+    """No pooled DB connection became available within the acquire budget."""
+
+
+def _acquire_timeout_s() -> float:
+    try:
+        return float(os.getenv("DB_POOL_ACQUIRE_TIMEOUT_S", "5"))
+    except ValueError:
+        return 5.0
+
 
 def _get_pool() -> pool.ThreadedConnectionPool:
     global _pool
@@ -68,6 +93,10 @@ def _get_pool() -> pool.ThreadedConnectionPool:
                     maxconn,
                     keepalives,
                 )
+                global _pool_permits, _pool_permits_size
+                if _pool_permits is None or _pool_permits_size != maxconn:
+                    _pool_permits = threading.Semaphore(maxconn)
+                    _pool_permits_size = maxconn
     return _pool
 
 
@@ -79,16 +108,23 @@ class _PooledConnection:
     The underlying psycopg2 connection is returned to the pool on exit/close.
     """
 
-    def __init__(self, owner_pool, conn):
+    def __init__(self, owner_pool, conn, permit=None):
         self._owner_pool = owner_pool
         self._conn = conn
         self._returned = False
+        # The semaphore permit held for this checkout (None when acquisition
+        # is unbudgeted); released exactly once in _return_to_pool / the
+        # discard path below.
+        self._permit = permit
 
     def _return_to_pool(self):
         if self._returned:
             return
         self._returned = True
         self._owner_pool.putconn(self._conn)
+        if self._permit is not None:
+            self._permit.release()
+            self._permit = None
 
     # ── delegate all attribute access to the real connection ──────────────────
     def __getattr__(self, name):
@@ -132,6 +168,9 @@ class _PooledConnection:
             )
             self._returned = True
             self._owner_pool.putconn(self._conn, close=True)
+            if self._permit is not None:
+                self._permit.release()
+                self._permit = None
             return
         self._return_to_pool()
 
@@ -141,8 +180,30 @@ class _PooledConnection:
 
 def get_db_connection() -> _PooledConnection:
     """Return a pooled connection.  Can be used as a context manager or
-    by calling .close() explicitly when done."""
+    by calling .close() explicitly when done.
+
+    Waits at most DB_POOL_ACQUIRE_TIMEOUT_S (default 5 s; <= 0 blocks
+    indefinitely, the pre-audit behavior) for a free connection, then
+    raises PoolAcquireTimeout. Never retries: callers surface the error
+    through their existing handler, and clients must not retry timed-out
+    mutations (a timed-out request may still be running server-side).
+    """
     owner_pool = _get_pool()
-    conn = owner_pool.getconn()
+    permits = _pool_permits
+    budget = _acquire_timeout_s()
+    held = None
+    if permits is not None and budget > 0:
+        if not permits.acquire(timeout=budget):
+            raise PoolAcquireTimeout(
+                f"no DB connection available within {budget:g}s "
+                "(pool exhausted; see DB_POOL_MAX / WEB_CONCURRENCY sizing)"
+            )
+        held = permits
+    try:
+        conn = owner_pool.getconn()
+    except Exception:
+        if held is not None:
+            held.release()
+        raise
     conn.autocommit = False
-    return _PooledConnection(owner_pool, conn)
+    return _PooledConnection(owner_pool, conn, held)

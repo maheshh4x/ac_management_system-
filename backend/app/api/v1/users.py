@@ -560,18 +560,21 @@ def list_notifications():
         params.append(since)
     try:
         with get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # One round trip for both counts: the unfiltered totals and the
+            # filtered total share a UNION ALL (sections keyed explicitly,
+            # never by row order). A second statement fetches the page.
             cur.execute(
-                "SELECT COUNT(*) AS total,"
+                "(SELECT 1 AS section, COUNT(*) AS total,"
                 " COUNT(*) FILTER (WHERE NOT is_read) AS unread"
-                " FROM notifications WHERE user_id = %s",
-                (user["id"],),
+                " FROM notifications WHERE user_id = %s)"
+                " UNION ALL "
+                "(SELECT 2 AS section, COUNT(*) AS total, 0 AS unread"
+                f" FROM notifications {where})",
+                (user["id"],) + tuple(params),
             )
-            counts = cur.fetchone()
-            cur.execute(
-                "SELECT COUNT(*) AS total" f" FROM notifications {where}",
-                tuple(params),
-            )
-            filtered_total = cur.fetchone()["total"]
+            sections = {r["section"]: r for r in cur.fetchall()}
+            counts = sections[1]
+            filtered_total = sections[2]["total"]
             cur.execute(
                 "SELECT id, type, title, body, entity_type, entity_id, is_read, created_at"
                 f" FROM notifications {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",

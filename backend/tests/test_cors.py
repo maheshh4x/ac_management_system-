@@ -106,3 +106,22 @@ def test_error_responses_carry_cors_headers(secret_client):
     )
     assert resp.status_code == 404
     assert resp.headers.get("Access-Control-Allow-Origin") == ALLOWED_ORIGIN
+
+
+def test_preflight_caches_with_max_age(client):
+    """Preflight advertises Access-Control-Max-Age so browsers skip repeat
+    OPTIONS round trips (Stage E2: one extra ~0.35 s hop per distinct
+    endpoint per burst without it)."""
+    resp = _preflight(client, DASHBOARD_ENDPOINTS[0])
+    assert resp.status_code in (200, 204), resp.status_code
+    max_age = resp.headers.get("Access-Control-Max-Age")
+    assert max_age is not None, "preflight must carry Access-Control-Max-Age"
+    assert int(max_age) > 0
+
+
+def test_preflight_max_age_does_not_grant_unapproved_origin(client):
+    """The cache lifetime must not leak a grant to a disallowed origin."""
+    resp = _preflight(client, DASHBOARD_ENDPOINTS[0], origin="http://evil.example")
+    acao = resp.headers.get("Access-Control-Allow-Origin")
+    assert acao != "http://evil.example"
+    assert acao is None or acao == "null"

@@ -52,8 +52,12 @@ def stub_pool(monkeypatch):
     _FakePool.instances.clear()
     monkeypatch.setattr(dbmod.pool, "ThreadedConnectionPool", _FakePool)
     dbmod._pool = None
+    dbmod._pool_permits = None
+    dbmod._pool_permits_size = None
     yield _FakePool
     dbmod._pool = None
+    dbmod._pool_permits = None
+    dbmod._pool_permits_size = None
 
 
 def test_concurrent_init_creates_single_pool(stub_pool):
@@ -142,3 +146,65 @@ def test_close_after_with_block_does_not_touch_returned_connection(stub_pool):
     wrapper.close()  # already returned: must not run a second rollback/commit
     assert raw.commits == 1
     assert raw.rollbacks == 0
+
+
+# ── Bounded pool acquisition (deployment-reliability audit, P0) ─────────────
+# getconn() on an exhausted psycopg2 pool blocks indefinitely; the wrapper
+# must fail fast with PoolAcquireTimeout and must recycle the permit so the
+# pool recovers after checkout holders return their connections.
+
+
+def test_acquire_timeout_fails_fast(monkeypatch, stub_pool):
+    """Exhausted pool: the third checkout fails within the budget, not never."""
+    import time
+
+    monkeypatch.setenv("DB_POOL_MAX", "2")
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_S", "0.2")
+    dbmod._pool = None
+    dbmod._pool_permits = None
+    held = [dbmod.get_db_connection(), dbmod.get_db_connection()]
+    start = time.monotonic()
+    with pytest.raises(dbmod.PoolAcquireTimeout):
+        dbmod.get_db_connection()
+    assert time.monotonic() - start < 5
+    for conn in held:
+        conn.close()
+
+
+def test_acquire_timeout_recovers_after_release(monkeypatch, stub_pool):
+    monkeypatch.setenv("DB_POOL_MAX", "1")
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_S", "5")
+    dbmod._pool = None
+    dbmod._pool_permits = None
+    first = dbmod.get_db_connection()
+    import threading as _threading
+
+    outcome = {}
+
+    def waiter():
+        try:
+            with dbmod.get_db_connection():
+                outcome["ok"] = True
+        except Exception as exc:  # noqa: BLE001
+            outcome["error"] = exc
+
+    t = _threading.Thread(target=waiter)
+    t.start()
+    _threading.Event().wait(0.3)
+    first.close()  # returning the only connection must release its permit
+    t.join(timeout=10)
+    assert outcome.get("ok") is True, outcome
+
+
+def test_acquire_timeout_nonpositive_disables_budget(monkeypatch, stub_pool):
+    """DB_POOL_ACQUIRE_TIMEOUT_S<=0 preserves the pre-audit behavior: no
+    fast failure, and checkout/close must not corrupt the semaphore (no
+    permit is taken, so none may be released)."""
+    monkeypatch.setenv("DB_POOL_MAX", "2")
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_S", "0")
+    dbmod._pool = None
+    dbmod._pool_permits = None
+    conns = [dbmod.get_db_connection() for _ in range(3)]  # beyond maxconn: no error
+    for conn in conns:
+        conn.close()
+    assert dbmod._pool_permits._value == 2  # untouched: nothing leaked or minted

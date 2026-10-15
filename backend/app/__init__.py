@@ -145,7 +145,12 @@ def create_app():
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted, x_proto=trusted, x_host=trusted)
 
     origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
-    CORS(app, origins=origins, expose_headers=["X-Request-ID"])
+    # max_age lets browsers cache preflight (OPTIONS) results for one hour
+    # instead of re-sending an OPTIONS round trip before every distinct
+    # authenticated endpoint (Stage E1: ~0.35 s per preflight through the
+    # edge). The origin allow-list, methods, headers and credential
+    # semantics are unchanged — only the cache lifetime of the grant.
+    CORS(app, origins=origins, expose_headers=["X-Request-ID"], max_age=3600)
 
     init_limiter(app)
 

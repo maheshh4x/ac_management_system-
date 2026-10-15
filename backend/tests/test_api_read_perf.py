@@ -24,6 +24,7 @@ import app.api.v1.assets as assets_mod
 import app.api.v1.campus as campus_mod
 import app.api.v1.reports as reports_mod
 import app.api.v1.system as system_mod
+import app.api.v1.users as users_mod
 import app.config.database as db_mod
 
 # ── statement counting (test-local instrumentation) ────────────────────────
@@ -67,6 +68,13 @@ class _CountingConn:
     def close(self):
         return self._conn.close()
 
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._conn.__exit__(*exc)
+
     def __getattr__(self, name):
         return getattr(self._conn, name)
 
@@ -89,6 +97,7 @@ def count_stmts(monkeypatch):
     monkeypatch.setattr(system_mod, "get_db_connection", wrapper)
     monkeypatch.setattr(campus_mod, "get_db_connection", wrapper)
     monkeypatch.setattr(reports_mod, "get_db_connection", wrapper)
+    monkeypatch.setattr(users_mod, "get_db_connection", wrapper)
     COUNTER["n"] = 0
     return COUNTER
 
@@ -150,4 +159,11 @@ def test_maintenance_trend_budget(client, count_stmts):
     statements, wall = _measure(client, count_stmts, "/api/v1/reports/maintenance-trend")
     print(f"/api/v1/reports/maintenance-trend: {statements} stmts, {wall:.1f} ms")
     # profile + table guard + ONE consolidated UNION ALL (rows/stats/priority).
+    assert statements <= 3, statements
+
+
+def test_notifications_budget(client, count_stmts):
+    statements, wall = _measure(client, count_stmts, "/api/v1/notifications")
+    print(f"/api/v1/notifications: {statements} stmts, {wall:.1f} ms")
+    # profile + ONE UNION ALL for both counts (totals + filtered) + page.
     assert statements <= 3, statements
