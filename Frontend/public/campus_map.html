@@ -110,6 +110,13 @@ const OVERVIEW={th:-1.57,ph:1.3,rad:105,tx:-5,ty:2,tz:0};
 let th=OVERVIEW.th,ph=OVERVIEW.ph,rad=OVERVIEW.rad,tg=new THREE.Vector3(OVERVIEW.tx,OVERVIEW.ty,OVERVIEW.tz);
 function place(){cam.position.set(tg.x+rad*Math.sin(ph)*Math.sin(th),tg.y+rad*Math.cos(ph),tg.z+rad*Math.sin(ph)*Math.cos(th));cam.lookAt(tg)}
 const el=R.domElement,ray=new THREE.Raycaster(),ms=new THREE.Vector2();
+// GPU context loss (background-tab discard, driver reset, device pressure
+// from the fullscreen DPR<=2 framebuffer + 2048px shadow map): without this
+// the canvas goes permanently black. preventDefault() keeps the context
+// restorable; on restore we re-fit the renderer and resume the existing
+// loop — no scene rebuild, no interaction change.
+el.addEventListener('webglcontextlost',e=>{e.preventDefault();stamp('Graphics context lost — restoring…')},{passive:false});
+el.addEventListener('webglcontextrestored',()=>{size();place()});
 let dn=null,mv=0,isTouch=false;
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;

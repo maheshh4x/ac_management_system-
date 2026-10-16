@@ -30,9 +30,33 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 
+/**
+ * Campus-map framing exception (3D map iframe fix).
+ *
+ * `public/campus_map.html` is a static, unauthenticated, read-only WebGL
+ * visualization (system fonts only, one cdnjs script, no cookies/session —
+ * the host page forwards stats via postMessage). The global rule above
+ * stamps it `X-Frame-Options: DENY` (verified: local prod server returns
+ * DENY on /campus_map.html), which makes the same-origin iframe on
+ * /(role)/campus refuse to render.
+ *
+ * This rule serves the IDENTICAL header set with the single difference
+ * `X-Frame-Options: SAMEORIGIN`, so only our own origin may frame the map.
+ * It is listed AFTER the global rule because Next.js applies matching
+ * header rules in order with later entries overwriting earlier ones for the
+ * same key — DENY stays in force for every other route, and no header is
+ * weakened globally.
+ */
+const campusMapHeaders = securityHeaders.map((h) =>
+  h.key === "X-Frame-Options" ? { ...h, value: "SAMEORIGIN" } : h,
+);
+
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/campus_map.html", headers: campusMapHeaders },
+    ];
   },
   images: {
     // Only self-hosted assets; the login page uses /images/nitttr-campus.jpg.
